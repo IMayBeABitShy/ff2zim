@@ -68,6 +68,10 @@ STATPAGE_TEMPLATE = """<!DOCTYPE html>
                 <th>Count</th>
             </tr>
             <tr>
+                <td>Sources</td>
+                <td><P align="right">{nsources:,.4f}</P></td>
+            </tr>
+            <tr>
                 <td>Categories</td>
                 <td><P align="right">{ncategories:,.4f}</P></td>
             </tr>
@@ -261,8 +265,11 @@ def create_table(sorted_entries):
     for e in sorted_entries:
         title = e["title"]
         sid = e["storyId"]
+        abbrev = e["siteabbrev"]
         author = e.get("author", "")
         author_id = e.get("authorId", 0)
+        fsid = "{}-{}".format(abbrev, sid)
+        faid = "{}-{}".format(abbrev, author_id)
         description = e.get("description", "???")
         favs = e.get("favs", 0)
         follows = e.get("follows", 0)
@@ -272,9 +279,9 @@ def create_table(sorted_entries):
         stats += "<P><B>Followers:</B> {:,}</P><P><B>Favorites:</B> {:,}</P>".format(follows, favs)
         tbl <= html.TR(
             html.TD(
-                    html.A(title, href="../../stories/{}/story.html".format(sid))
+                    html.A(title, href="../../stories/{}/story.html".format(fsid))
                 ) + html.TD(
-                    html.A(author, href="../../author/{}/author.html".format(author_id))
+                    html.A(author, href="../../author/{}/author.html".format(faid))
                 ) + html.TD(
                     html.P(description, **{"class": "description"})
                 ) + html.TD(
@@ -511,7 +518,7 @@ def create_index_page(path, id2meta, category2ids, authordata):
         ) + "</table>"
     
     html = INDEX_TEMPLATE.format(
-        title="ffn2zim",
+        title="ff2zim",
         nauthors=nauthors,
         nstories=nstories,
         ncategories=ncategories,
@@ -546,13 +553,18 @@ def create_stats_page(path, id2meta, category2ids, authordata):
     
     nwords = 0
     nchapters = 0
+    sources = []
     
     for sid in id2meta:
         md = id2meta[sid]
         nwords += md["numWords"]
         nchapters += md["numChapters"]
+        source = md["siteabbrev"]
+        if source not in sources:
+            sources.append(source)
     
     html = STATPAGE_TEMPLATE.format(
+        nsources=len(sources),
         ncategories=ncategories,
         nstories=nstories,
         spc=(nstories / float(ncategories)),

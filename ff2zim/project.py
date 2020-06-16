@@ -5,23 +5,59 @@ managing the data and paths.
 import os
 import json
 
-from .exceptions import NotAValidProject, NotAValidTarget, AlreadyExists, DirectoryNotEmpty
+from .exceptions import NotAValidProject, AlreadyExists, DirectoryNotEmpty
 from .reporter import BaseReporter, VoidReporter
 from .fileutils import create_file_with_content, append_to_file, download_file, copy_resource_file
-from .utils import str_to_int
-from .targetutils import get_id_from_url, is_valid_url_or_id
+from .target import Target
+from .converter import get_metadata_converter
+
+
+# DIRECTORY STRUCTURE
+# --------------------------------
+# PROJECTDIR/
+# | Contains instructions and caches
+# |
+# +-fanfics/
+# | | Contains fanfics and their metadata
+# | |
+# | +-ABBREV/
+# | | | Contains fanfic directories by their site abbreviation
+# | | |
+# | | +-ID/
+# | | | |Contains data for the fanfic with the specified ID
+# | | | |
+# | | | +-story.html
+# | | | | Contains the HTML content of chapter 1
+# | | | |
+# | | | +-metadata.json
+# | | |  Contains the metadata of this fanfic
+# | | |
+# | | +- ...
+# | |
+# | +- ...
+# |
+# +-resources/
+# | | Contains other resources, e.g. favicon.png
+# | |
+# | +-favicon.ico
+# |
+# +-target_urls.txt
+# |  A list of URLs, one per line, which to download and include.
+# |
+# +-project.json
+#    Contains other project data.
 
 
 TARGETLIST_DEFAULT_CONTENT = """
 # Welcome to ff2zim.
 # Please add the fanfics you want to download to this file.
-# Each line should contain exactly one URL pointing to a fanfic.
+# Each line should contain exactly one fanficfare compatible URL.
 # lines starting with '#' will be ignored.
 """
 
 PROJECT_JSON_DEFAULT_CONTENT = """
 {
-    "version": "0.1",
+    "version": "0.2",
 }
 """
 
@@ -39,7 +75,9 @@ class Project(object):
     
     def __init__(self, path):
         if not self.is_valid_project(path):
-            raise NotAValidProject("Path '{}' does not point to a valid project.")
+            raise NotAValidProject(
+                "Path '{}' does not point to a valid project.".format(path),
+                )
         self.path = path
 
     @classmethod
@@ -200,10 +238,11 @@ class Project(object):
         @param target: target to add
         @type target: L{str} or L{int}
         """
-        if not is_valid_url_or_id(target):
-            raise NotAValidTarget(target)
+        # check that target is valid
+        t = Target(target)
+        
         tp = os.path.join(self.path, "target_urls.txt")
-        append_to_file(tp, str(target) + "\n")
+        append_to_file(tp, t.url + "\n")
         
     
     
@@ -214,14 +253,14 @@ class Project(object):
         @param exclude_existing: If nonzero, do not include URLs which are already downloaded.
         @type exclude_existing: L{bool}
         
-        @return: list of URLs to download
-        @rtype: L{list} of L{str}
+        @return: list of Targets to download
+        @rtype: L{list} of L{ff2zim.target.Target}
         """
         assert isinstance(exclude_existing, bool)
         tp = os.path.join(self.path, "target_urls.txt")
         if not os.path.exists(tp):
             return []
-        lines = []
+        targets = []
         # read target list
         with open(tp, "r") as fin:
             for line in fin:
@@ -232,17 +271,17 @@ class Project(object):
                 elif line == "":
                     # ignore empty lines
                     continue
-                elif line in lines:
-                    # ignore duplicates
-                    continue
                 else:
-                    lines.append(line)
+                    target = Target(line)
+                    if target not in targets:
+                        # only add if not a duplicate
+                        targets.append(target)
         
         if exclude_existing:
             # remove existing URLs.
-            lines = list(filter(lambda x: not self.has_fanfic(x), lines))
+            targets = list(filter(lambda x: not self.has_target_locally(x), targets))
         
-        return lines
+        return targets
     
     
     def has_target(self, target):
@@ -250,139 +289,110 @@ class Project(object):
         Check if a target is defined for this project
         
         @param target: target to check
-        @type target: L{str} or L{int}
+        @type target: L{ff2zim.target.Target} or L{str}
         
         @return: True if target already exists
         @rtype: L{bool}
         """
-        if isinstance(target, int):
-            sid = target
-        elif isinstance(target, str):
-            sid = get_id_from_url(target)
-            if sid is None:
-                raise NotAValidTarget(target)
-        else:
-            raise NotAValidTarget(target)
+        if not isinstance(target, Target):
+            target = Target(target)
         targets = self.list_targets(exclude_existing=False)
-        targets = [get_id_from_url(u) for u in targets]
-        return (sid in targets)
+        return (target in targets)
     
     
-    def has_fanfic(self, id_or_url):
+    def has_target_locally(self, target):
         """
         Check if the given fanfic is already stored locally.
         
-        @param id_or_url: ID or URL of fanfic to check
-        @type id_or_url: L{int} or L{str}
+        @param target: target to check
+        @type target: L{ff2zim.target.Target} or L{str}
         
         @return: True if it is already stored locally
         @rtype: L{bool}
         """
-        if isinstance(id_or_url, int):
-            fid = id_or_url
-        elif isinstance(id_or_url, str):
-            fid = get_id_from_url(id_or_url)
-        else:
-            raise TypeError("Got Value with unknown type: {}!".format(repr(id_or_url)))
-        fp = os.path.join(self.path, "fanfics", str(fid))
+        if not isinstance(target, Target):
+            target = Target(target)
+        fp = os.path.join(self.path, "fanfics", target.subpath)
         if os.path.exists(fp):
             return True
         else:
             return False
     
     
-    def collect_metadata(self):
+    def collect_metadata(self, reporter=None):
         """
         Return the combined metadata of all fanfics.
         
         This will be a list of the individual metadata.
         
+        @param reporter: reporter used for status reports
+        @type reporter: L{ff2zim.reporter.BaseReporter}
+        
         @return: the combined metadata
         @rtype: L{list} of L{dict}
         """
+        if reporter is None:
+            reporter = VoidReporter()
+        
         fp = os.path.join(self.path, "fanfics")
         if not os.path.exists(fp):
             # empty
             return []
-        story_ids = sorted(os.listdir(fp))
+        aliases = self.get_category_aliases()
         am = []
-        for sid in story_ids:
-            smp = os.path.join(fp, sid, "metadata.json")
-            if not os.path.exists(smp):
-                reporter.msg("WARNING: Story {} has no metadata!".format(sid))
-                continue
-            with open(smp, "r") as fin:
-                content = json.load(fin)
-            # rewrite content
-            content["authorId"] = int(content.get("authorId", "0"))
-            content["favs"] = str_to_int(content.get("favs", "0"))
-            content["follows"] = str_to_int(content.get("follows", "0"))
-            content["numChapters"] = str_to_int(content.get("numChapters", "0"))
-            content["numWords"] = str_to_int(content.get("numWords", "0"))
-            content["reviews"] = str_to_int(content.get("reviews", "0"))
-            content["storyId"] = int(content.get("storyId", "0"))
-            am.append(content)
+        for abbrev in os.listdir(fp):
+            sp = os.path.join(fp, abbrev)
+            story_ids = sorted(os.listdir(sp))
+            for sid in story_ids:
+                smp = os.path.join(sp, sid, "metadata.json")
+                if not os.path.exists(smp):
+                    reporter.msg("WARNING: Story {} has no metadata!".format(sid))
+                    continue
+                with open(smp, "r") as fin:
+                    content = json.load(fin)
+                
+                # convert site dependent values
+                converter = get_metadata_converter(abbrev)
+                content = converter.convert(content)
+                
+                # resolve aliases
+                if "category" in content:
+                    content["category"] = aliases.get(content["category"], content["category"])
+                am.append(content)
         return am
     
-    def download_target(id_or_url, reporter=None):
+    def add_category_alias(self,from_, to):
         """
-        Download the target
+        Define a alias for a category.
+        Afterwards, categories from the 'from_' category will be handled
+        as if they were from the 'to' category.
         
-        @param id_or_url: ID or URL to download.
-        @type id_or_url: L{int} or L{str}
-        @param reporter: reporter for status reports
-        @type reporter: L{ff2zim.reporter.BaseReporter}
+        @param from_: category which should be considered an alias
+        @type from_: L{str}
+        @param to: category which 'from_' should be considered an alias of
+        @type to: L{str}
         """
-        assert isinstance(reporter, BaseReporter) or reporter is None
-        
-        if reporter is None:
-            reporter = VoidReporter()
-        
-        if not is_valid_url_or_id(id_or_url):
-            raise NotAValidTarget(id_or_url)
-        
-        if isinstance(id_or_url, str):
-            if id_or_url.isdigit():
-                fid = int(id_or_url)
-                url = get_url_for_id(fid)
-            else:
-                url = id_or_url
-                fid = get_id_from_url(url)
+        p = os.path.join(self.path, "aliases.json")
+        if os.path.exists(p):
+            with open(p, "r") as fin:
+                aliases = json.load(fin)
         else:
-            fid = id_or_url
-            url = get_url_for_id(fid)
-        
-        fanfic_path = os.path.join(path, "fanfics")
-        target_path = os.path.join(fanfic_path, str(fid))
-        story_path = os.path.join(target_path, "story.html")
-        metadata_path = os.path.join(target_path, "metadata.json")
-        
-        if os.path.exists(story_path):
-            raise AlreadyExists("Story already exists!")
-        
-        reporter.msg("Downloading: {}... ".format(url), end="")
-        
-        try:
-            output = subprocess.check_output(
-                [
-                    "fanficfare",
-                    "-f", "html",
-                    "-j",
-                    "-o", "is_adult=true",
-                    "-o", "output_filename={t}{s}${{storyId}}{s}story${{formatext}}".format(t=fanfic_path, s=os.sep),
-                    url,
-                    ],
-                universal_newlines=True,
-                )
-        except subprocess.CalledProcessError:
-            reporter.msg("Error.\nCleaning up...")
-            if os.path.exists(target_path):
-                shutil.rmtree(target_path)
-            reporter.msg("Done.")
-        else:
-            reporter.msg("Done.\nSaving Metadata... ", end="")
-            # dump output into metadata
-            with open(metadata_path, "w") as fout:
-                fout.write(output)
-            reporter.msg("Done.")
+            aliases = {}
+        aliases[from_] = to
+        with open(p, "w") as fout:
+            json.dump(aliases, fout)
     
+    def get_category_aliases(self):
+        """
+        Return all category aliases.
+        
+        @return: a dict mapping src->dst aliases
+        @rtype: L{dict} of L{str} -> L{str}
+        """
+        p = os.path.join(self.path, "aliases.json")
+        if os.path.exists(p):
+            with open(p, "r") as fin:
+                aliases = json.load(fin)
+        else:
+            aliases = {}
+        return aliases

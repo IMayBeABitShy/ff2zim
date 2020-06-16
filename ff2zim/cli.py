@@ -5,16 +5,18 @@ import cmd
 import shlex
 import os
 
+from fanficfare.geturls import get_urls_from_text
+
 from .project import Project
 from .zimbuild import build_zim
-from .exceptions import DirectoryNotEmpty
-from .targetutils import is_valid_url_or_id, find_all_ids_in_string
+from .exceptions import DirectoryNotEmpty, NotAValidTarget
 from .reporter import StdoutReporter
+from .target import Target
 
 
-class FFN2ZIMConsole(cmd.Cmd):
+class FF2ZIMConsole(cmd.Cmd):
     """
-    CLI for ffn2zim.
+    CLI for ff2zim.
     
     @ivar project: the currently active project
     @type project: L{ff2zim.project.Project} or L{None}
@@ -22,8 +24,8 @@ class FFN2ZIMConsole(cmd.Cmd):
     @type reporter: L{ff2zim.reporter.BaseReporter}
     """
     
-    intro = "Welcome to ffn2zim!\nSee 'help usage' for details."
-    prompt = "ffn2zim> "
+    intro = "Welcome to ff2zim!\nSee 'help usage' for details."
+    prompt = "ff2zim> "
     
     def __init__(self):
         cmd.Cmd.__init__(self)
@@ -83,7 +85,7 @@ class FFN2ZIMConsole(cmd.Cmd):
             print("No project selected.")
             return
         else:
-            print("Unselecting '{}'...".format(self.project_path))
+            print("Unselecting '{}'...".format(self.project.path))
             self.project = None
     
     def do_init(self, s):
@@ -134,7 +136,7 @@ class FFN2ZIMConsole(cmd.Cmd):
         else:
             targets = self.project.list_targets(exclude_existing=False)
             for target in targets:
-                print(target)
+                print(str(target))
     
     def do_list_missing(self, s):
         """
@@ -146,7 +148,7 @@ class FFN2ZIMConsole(cmd.Cmd):
         else:
             targets = self.project.list_targets(exclude_existing=True)
             for target in targets:
-                print(target)
+                print(str(target))
     
     def do_list_titles(self, s):
         """
@@ -158,27 +160,31 @@ class FFN2ZIMConsole(cmd.Cmd):
         else:
             entries = []
             for md in self.project.collect_metadata():
-                sid = int(md.get("storyId", "0"))
+                sab = md.get("siteabbrev", "???")
+                sid = md.get("storyId", "???")
                 title = md.get("title", "???")
-                entries.append((sid, title))
-            for sid, title in sorted(entries):
-                print("{} - {}".format(sid, title))
+                entries.append((sab, sid, title))
+            for sab, sid, title in sorted(entries):
+                print("[{}] {} - {}".format(sab, sid, title))
     
     def do_add(self, s):
         """
-        add <url or id>: Add a URL or an ID to the target list.
+        add <url>: Add a URL to the target list.
         """
         if self.project is None:
             print("Error: No project selected.")
             return
-        elif not is_valid_url_or_id(s):
+        try:
+            target = Target(s)
+        except NotAValidTarget:
             print("Error: Not a valid URL/ID!")
             return
-        elif self.project.has_target(s):
-            print("Info: Target '{}' already defined, skipping...".format(s))
-            return
         else:
-            self.project.add_target(s)
+            if self.project.has_target(target):
+                print("Info: Target '{}' already defined, skipping...".format(s))
+                return
+            else:
+                self.project.add_target(s)
     
     def do_add_from_file(self, s):
         """
@@ -193,9 +199,9 @@ class FFN2ZIMConsole(cmd.Cmd):
         else:
             with open(s, "r") as fin:
                 content = fin.read()
-            ids = find_all_ids_in_string(content)
-            for sid in ids:
-                self.do_add(str(sid))
+            urls = get_urls_from_text(content)
+            for url in urls:
+                self.do_add(url)
     
     def do_download_all(self, s):
         """
@@ -206,7 +212,7 @@ class FFN2ZIMConsole(cmd.Cmd):
             return
         targets = self.project.list_targets(exclude_existing=True)
         for target in targets:
-            self.project.download_target(target, reporter=self.reporter)
+            target.download(self.project, reporter=self.reporter)
     
     def do_download_n(self, s):
         """
@@ -223,11 +229,11 @@ class FFN2ZIMConsole(cmd.Cmd):
         if self.project is None:
             print("Error: No project selected.")
             return
-        targets = self.project.list_targets(self.project, exclude_existing=True)
+        targets = self.project.list_targets(exclude_existing=True)
         m = min(n, len(targets))
         for i in range(m):
             t = targets[i]
-            self.project.download_target(t, reporter=self.reporter)
+            t.download(self.project, reporter=self.reporter)
     
     def do_build(self, s):
         """
@@ -269,6 +275,34 @@ class FFN2ZIMConsole(cmd.Cmd):
         c, n = splitted
         o = self.project.get_option(c, n)
         print(o)
+    
+    def do_list_category_aliases(self, s):
+        """
+        list_category_aliases: list all category aliases
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        aliases = self.project.get_category_aliases()
+        for src in sorted(aliases.keys()):
+            dst = aliases[src]
+            print("{} -> {}".format(src, dst))
+    
+    def do_add_category_alias(self, s):
+        """
+        add_category_alias <src> <dst>: make src an alias of dst
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        splitted = shlex.split(s)
+        if len(splitted) != 2:
+            print("Error: expected exactly 2 arguments!")
+            return
+        src = splitted[0]
+        dst = splitted[1]
+        self.project.add_category_alias(src, dst)
+        print("'{}' is now an alias of '{}'.".format(src, dst))
 
 
 
@@ -278,7 +312,7 @@ def main():
     
     This will run the CLI.
     """
-    cmdo = FFN2ZIMConsole()
+    cmdo = FF2ZIMConsole()
     cmdo.cmdloop()
 
 

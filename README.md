@@ -18,7 +18,7 @@ ff2zim requires:
 - zimwriterfs
 - [fanficfare](https://github.com/JimmXinu/FanFicFare)
 
-**Note:** Both *fanficfare* and *zimwriterfs* are called using the `subprocess` module. Please ensure that your `$PATH` is correctly configured.
+**Note:** Both *fanficfare* and *zimwriterfs* are called using the `subprocess` module. Please ensure that your `$PATH` is correctly configured. *fanficfare* also needs to be present as a python module.
 
 ## Install
 

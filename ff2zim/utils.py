@@ -13,9 +13,14 @@ def str_to_int(s):
     @rtype: L{int}
     """
     s = s.strip().lower()
+    s = s.replace("(", "")
+    s = s.replace(")", "")
+    s = s.replace(".", ",")
     s = s.replace(",", "")
     s = s.replace("k", "000")
     s = s.replace("m", "000000")
+    if not s:
+        return 0
     return int(s)
 
 
@@ -31,7 +36,14 @@ def bleach_name(name):
     @rtype: L{str}
     """
     assert isinstance(name, str)
+    
     name = name.replace("\x00", "_")
-    name = name.replace("/", "_")
-    name = name.replace("\\", "_")
+    name = name.replace("/",    "_")
+    name = name.replace("\\",   "_")
+    name = name.replace("#",    "_")
+    name = name.replace("?",    "_")
+    name = name.replace("&",    "_")
+    name = name.replace("=",    "_")
+    name = name.replace(":",    "_")
+    
     return name

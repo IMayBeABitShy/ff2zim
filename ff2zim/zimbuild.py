@@ -41,8 +41,8 @@ from .utils import bleach_name
 #   +-story/
 #   | | Contains the stories.
 #   | |
-#   | +-ID/
-#   | | | Story by id
+#   | +-ABBREV-ID/
+#   | | | Story by abbev+id combination
 #   | | | 
 #   | | +-story.html
 #   | |   The actual story, as an HTML file
@@ -66,8 +66,8 @@ from .utils import bleach_name
 #   +-author/
 #     | The pages of the authors. Not the full pages, but information what stories are in our database.
 #     |
-#     +-ID/
-#       | The author by id
+#     +-ABBREV-ID/
+#       | The author by abbrev+id combo
 #       |
 #       +-author.html
 #       | author information page
@@ -112,11 +112,13 @@ def build_zim(project, outpath, reporter=None):
         # collect metadata
         reporter.msg("-> Collecting metadata... ", end="")
         metadata = project.collect_metadata()
+        
         id2meta = {}
         category2ids = {"ALL": []}
         authordata = {}
         for e in metadata:
-            storyid = e["storyId"]
+            abbrev = e["siteabbrev"]
+            storyid = "{}-{}".format(abbrev, e["storyId"])
             id2meta[storyid] = e
             category = e["category"]
             if category not in category2ids:
@@ -124,11 +126,12 @@ def build_zim(project, outpath, reporter=None):
             else:
                 category2ids[category].append(storyid)
             category2ids["ALL"].append(storyid)
-            authorid = e["authorId"]
+            authororgid = e["authorId"]
+            authorid = "{}-{}".format(abbrev, authororgid)
             if authorid not in authordata:
                 authordata[authorid] = {
                     "name": e["author"],
-                    "id": authorid,
+                    "id": authororgid,
                     "url": e["authorUrl"],
                     "html": e["authorHTML"],
                     "stories": [storyid],
@@ -164,22 +167,40 @@ def build_zim(project, outpath, reporter=None):
         reporter.msg("Done.")
         
         # copy stories
-        reporter.msg("-> Copying stories... ", end="")
-        ncopied = 0
+        include_images = project.get_option("download", "include_images", True)
+        reporter.msg("-> Copying stories", end="")
+        if include_images:
+            reporter.msg(" and images", end="")
+        reporter.msg("...")
+        nscopied = 0
+        nicopied = 0
         storydir = os.path.join(htmldir, "stories")
         if not os.path.exists(storydir):
             os.mkdir(storydir)
-        for sid in id2meta.keys():
-            srcdir = os.path.join(project.path, "fanfics", str(sid))
+        for fsid in id2meta.keys():
+            # story
+            storydata = id2meta[fsid]
+            abbrev, sid = storydata["siteabbrev"], storydata["storyId"]
+            srcdir = os.path.join(project.path, "fanfics", abbrev, sid)
             src = os.path.join(srcdir, "story.html")
-            dstdir = os.path.join(storydir, str(sid))
+            dstdir = os.path.join(storydir, fsid)
             dst = os.path.join(dstdir, "story.html")
             if not os.path.exists(dstdir):
                 os.mkdir(dstdir)
             shutil.copyfile(src, dst)
-            ncopied += 1
+            nscopied += 1
+            # images
+            if include_images:
+                simgd = os.path.join(srcdir, "images")
+                if os.path.exists(simgd):
+                    dimgd = os.path.join(dstdir, "images")
+                    shutil.copytree(simgd, dimgd)
+                    nicopied += len(os.listdir(dimgd))
         reporter.msg("Done.")
-        reporter.msg("   -> Copied {} files.".format(ncopied))
+        reporter.msg("   -> Copied {} stories".format(nscopied), end="")
+        if include_images:
+            reporter.msg(" and {} images".format(nicopied), end="")
+        reporter.msg(".")
         
         # create category pages
         reporter.msg("-> Creating category pages... ", end="")
@@ -194,7 +215,7 @@ def build_zim(project, outpath, reporter=None):
             listfile = os.path.join(catdir, "list.html")
             create_category_page(listfile, category)
             metafile = os.path.join(catdir, "stories.json")
-            combined_meta = [e for e in metadata if e["storyId"] in category2ids[category]]
+            combined_meta = [e for e in metadata if "{}-{}".format(e["siteabbrev"], e["storyId"]) in category2ids[category]]
             with open(metafile, "w") as fout:
                 json.dump(combined_meta, fout)
             ncreated += 1
