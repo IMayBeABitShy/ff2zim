@@ -4,6 +4,10 @@ The command line interface.
 import cmd
 import shlex
 import os
+import json
+import time
+import re
+from urllib.parse import urljoin
 
 from fanficfare.geturls import get_urls_from_text
 
@@ -12,6 +16,7 @@ from .zimbuild import build_zim
 from .exceptions import DirectoryNotEmpty, NotAValidTarget
 from .reporter import StdoutReporter
 from .target import Target
+from .epubconverter import Html2EpubConverter
 
 
 class FF2ZIMConsole(cmd.Cmd):
@@ -203,6 +208,24 @@ class FF2ZIMConsole(cmd.Cmd):
             for url in urls:
                 self.do_add(url)
     
+    def do_add_ffn_from_file(self, s):
+        """
+        add_ffn_from_file <path>: Add all URLs/IDS from ffn in a file to the target list.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        elif not os.path.isfile(s):
+            print("Error: file '{}' not found!".format(s))
+            return
+        else:
+            with open(s, "r") as fin:
+                content = fin.read()
+            matches = re.findall(r"/s/[0-9]+/", content)
+            urls = [urljoin("https://fanfiction.net/", e) for e in matches]
+            for url in urls:
+                self.do_add(url)
+    
     def do_download_all(self, s):
         """
         download_all: download all targets, except those already downloaded.
@@ -303,6 +326,42 @@ class FF2ZIMConsole(cmd.Cmd):
         dst = splitted[1]
         self.project.add_category_alias(src, dst)
         print("'{}' is now an alias of '{}'.".format(src, dst))
+    
+    def do_generate_epubs(self, s):
+        """
+        generate_epubs <outdir>: generate epubs for all stories and save them to outdir.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        outdir = s
+        if not os.path.exists(outdir) or not os.path.isdir(outdir):
+            print("Error: '{}' does not refer to a valid directory.".format(outdir))
+            return
+        n_epubs = len(self.project.collect_metadata())
+        with self.reporter.with_progress("Generating EPUBs", n_epubs) as pb:
+            storydir = os.path.join(self.project.path, "fanfics")
+            n_generated = 0
+            start = time.time()
+            for siteabbr in os.listdir(storydir):
+                sitepath = os.path.join(storydir, siteabbr)
+                for sid in os.listdir(sitepath):
+                    fdir = os.path.join(sitepath, sid)
+                    metapath = os.path.join(fdir, "metadata.json")
+                    with open(metapath, "r") as fin:
+                        content = json.load(fin)
+                    title = content.get("title", siteabbr + "_" + sid)
+                    outpath = os.path.join(outdir, title + ".epub")
+                    converter = Html2EpubConverter(fdir)
+                    converter.parse()
+                    converter.write(outpath)
+                    n_generated += 1
+                    pb.advance(1)
+        print("Done. Generated {n} EPUBs in {t:.2f}s.".format(
+            n=n_generated,
+            t=time.time() - start,
+            )
+        )
 
 
 

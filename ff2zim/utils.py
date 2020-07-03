@@ -15,13 +15,21 @@ def str_to_int(s):
     s = s.strip().lower()
     s = s.replace("(", "")
     s = s.replace(")", "")
-    s = s.replace(".", ",")
+    if s.count(".") > 1:
+        # period can not indicate start of decimal
+        s = s.replace(".", ",")
     s = s.replace(",", "")
-    s = s.replace("k", "000")
-    s = s.replace("m", "000000")
+    if s.endswith("k"):
+        multiplier = 1000
+        s = s[:-1]
+    elif s.endswith("m"):
+        multiplier = 1000000
+        s = s[:-1]
+    else:
+        multiplier = 1
     if not s:
         return 0
-    return int(s)
+    return int(float(s) * multiplier)
 
 
 

@@ -123,11 +123,16 @@ class Target(object):
                 shutil.rmtree(target_path)
             reporter.msg("Done.")
         else:
-            reporter.msg("Done.\nSaving Metadata... ", end="")
-            # dump output into metadata
-            with open(metadata_path, "w") as fout:
-                fout.write(output)
-            reporter.msg("Done.")
+            # check if download was successfull
+            if not os.path.exists(target_path):
+                # not successfull
+                reporter.msg("Error.")
+            else:
+                reporter.msg("Done.\nSaving Metadata... ", end="")
+                # dump output into metadata
+                with open(metadata_path, "w") as fout:
+                    fout.write(output)
+                reporter.msg("Done.")
     
 
         

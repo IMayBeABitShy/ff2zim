@@ -20,6 +20,8 @@ setup(
     install_requires=[
         "requests",
         "fanficfare",
+        "bs4",
+        "six",
     ],
     entry_points={
         "console_scripts": [

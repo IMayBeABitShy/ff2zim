@@ -170,6 +170,31 @@ AUTHOR_TEMPLATE = """<!DOCTYPE html>
 </HTML>
 """
 
+EPUB_TEMPLATE = """<!DOCTYPE html>
+<HTML>
+    <HEAD>
+        <META charset="UTF-8">
+        <title>{title} (EPUB)</title>
+        <link rel="stylesheet" href="../../resources/styles.css">
+    </HEAD>
+    <BODY>
+        <H1>{title} (EPUB)</H1>
+        {cover}
+        <hr>
+        <P><B>Title:          </B> {title}</P>
+        <P><B>Author:         </B> {author}</P>
+        <P><B>Chapters:       </B> {chapters}</P>
+        <P><B>Words:          </B> {words}</P>
+        <P><B>Published:      </B> {published}</P>
+        <P><B>Updated:        </B> {updated}</P>
+        <P><B>Packaged:       </B> {packaged}</P>
+        <P><B>Description:    </B> {description}</P>
+        <hr>
+        <P><A href="../stories/{fsid}/story.epub" download="{title}.epub">Download EPUB</A></>
+    </BODY>
+</HTML>
+"""
+
 SORT_SCRIPT = """
 from javascript import JSON
 
@@ -580,6 +605,33 @@ def create_stats_page(path, id2meta, category2ids, authordata):
     )
     create_file_with_content(path, html)
 
+
+def create_epub_title_page(path, fsid, metadata, include_images=False):
+    """
+    Write a title page for an epub download.
+    
+    @param path: path to write to
+    @type path: l{str}
+    @param fsid: full story ID
+    @type fsid: L{str}
+    @param metadata: metadata of the story
+    @type metadata: L{dict}
+    @param include_images: if nonzero, include the cover in the output.
+    @type include_images: L{bool}
+    """
+    page = EPUB_TEMPLATE.format(
+        fsid=fsid,
+        title=metadata.get("title", "???"),
+        author=metadata.get("author", "???"),
+        words=metadata.get("numWords", "???"),
+        chapters=metadata.get("numChapters", "???"),
+        description=metadata.get("description", "???"),
+        published=metadata.get("datePublished", "???"),
+        updated=metadata.get("dateUpdated", "???"),
+        packaged=metadata.get("dateCreated", "???"),
+        cover=('<CENTER><img src="../stories/{}/images/cover.jpg" alt="cover"></CENTER>'.format(fsid) if include_images else ""),
+        )
+    create_file_with_content(path, page)
 
 def create_sort_script(path):
     """

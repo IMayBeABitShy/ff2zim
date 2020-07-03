@@ -14,8 +14,10 @@ from .htmlpages import (
     create_index_page, create_stats_page,
     create_author_page, create_category_page,
     create_sort_script, create_style_file,
+    create_epub_title_page,
     )
 from .utils import bleach_name
+from .epubconverter import Html2EpubConverter
 
 
 # BUILD DIRECTORY STRUCTURE
@@ -45,7 +47,10 @@ from .utils import bleach_name
 #   | | | Story by abbev+id combination
 #   | | | 
 #   | | +-story.html
-#   | |   The actual story, as an HTML file
+#   | | | The actual story, as an HTML file
+#   | | |
+#   | | +-story.epub
+#   | |   The story in epub format (if include_epubs==True)
 #   | |
 #   | ...
 #   |
@@ -64,17 +69,22 @@ from .utils import bleach_name
 #   | ...
 #   |
 #   +-author/
-#     | The pages of the authors. Not the full pages, but information what stories are in our database.
+#   | | The pages of the authors. Not the full pages, but information what stories are in our database.
+#   | |
+#   | +-ABBREV-ID/
+#   |   | The author by abbrev+id combo
+#   |   |
+#   |   +-author.html
+#   |   | author information page
+#   |   |
+#   |   +-stories.json
+#   |     Combined metadata of all stories by this author
+#   |
+#   +-epubs/
+#     | epub title pages (if include_epubs == True)
 #     |
-#     +-ABBREV-ID/
-#       | The author by abbrev+id combo
-#       |
-#       +-author.html
-#       | author information page
-#       |
-#       +-stories.json
-#         Combined metadata of all stories by this author
-
+#     +-ABBREV-ID.html
+#         The epub title page, identified by abbrev+id combo
 
 def build_zim(project, outpath, reporter=None):
     """
@@ -139,9 +149,12 @@ def build_zim(project, outpath, reporter=None):
             else:
                 authordata[authorid]["stories"].append(storyid)
         reporter.msg("Done.")
-        reporter.msg("   -> Found {} stories.".format(len(id2meta.keys())))
-        reporter.msg("   -> Found {} categories.".format(len(category2ids.keys())))
-        reporter.msg("   -> Found {} authors.".format(len(authordata.keys())))
+        n_stories = len(id2meta.keys())
+        n_categories = len(category2ids.keys())
+        n_authors = len(authordata.keys())
+        reporter.msg("   -> Found {} stories.".format(n_stories))
+        reporter.msg("   -> Found {} categories.".format(n_categories))
+        reporter.msg("   -> Found {} authors.".format(n_authors))
         
         # copy resources
         reporter.msg("-> Preparing static resources... ", end="")
@@ -167,35 +180,58 @@ def build_zim(project, outpath, reporter=None):
         reporter.msg("Done.")
         
         # copy stories
-        include_images = project.get_option("download", "include_images", True)
-        reporter.msg("-> Copying stories", end="")
+        include_images = project.get_option("build", "include_images", True)
+        build_epubs    = project.get_option("build", "include_epubs", True)
+        desc = "-> Copying stories"
         if include_images:
-            reporter.msg(" and images", end="")
-        reporter.msg("...")
-        nscopied = 0
-        nicopied = 0
-        storydir = os.path.join(htmldir, "stories")
-        if not os.path.exists(storydir):
-            os.mkdir(storydir)
-        for fsid in id2meta.keys():
-            # story
-            storydata = id2meta[fsid]
-            abbrev, sid = storydata["siteabbrev"], storydata["storyId"]
-            srcdir = os.path.join(project.path, "fanfics", abbrev, sid)
-            src = os.path.join(srcdir, "story.html")
-            dstdir = os.path.join(storydir, fsid)
-            dst = os.path.join(dstdir, "story.html")
-            if not os.path.exists(dstdir):
-                os.mkdir(dstdir)
-            shutil.copyfile(src, dst)
-            nscopied += 1
-            # images
-            if include_images:
-                simgd = os.path.join(srcdir, "images")
-                if os.path.exists(simgd):
-                    dimgd = os.path.join(dstdir, "images")
-                    shutil.copytree(simgd, dimgd)
-                    nicopied += len(os.listdir(dimgd))
+            desc += " and images"
+        if build_epubs:
+            desc += ", building EPUBs"
+        desc += "..."
+        with reporter.with_progress(desc, n_stories) as pb:
+            nscopied = 0
+            nicopied = 0
+            storydir = os.path.join(htmldir, "stories")
+            if not os.path.exists(storydir):
+                os.mkdir(storydir)
+            epubpagedir = os.path.join(htmldir, "epubs")
+            if build_epubs:
+                if not os.path.exists(epubpagedir):
+                    os.mkdir(epubpagedir)
+            for fsid in id2meta.keys():
+                # story
+                storydata = id2meta[fsid]
+                abbrev, sid = storydata["siteabbrev"], storydata["storyId"]
+                srcdir = os.path.join(project.path, "fanfics", abbrev, sid)
+                src = os.path.join(srcdir, "story.html")
+                dstdir = os.path.join(storydir, fsid)
+                dst = os.path.join(dstdir, "story.html")
+                if not os.path.exists(dstdir):
+                    os.mkdir(dstdir)
+                shutil.copyfile(src, dst)
+                nscopied += 1
+                # images
+                if include_images:
+                    simgd = os.path.join(srcdir, "images")
+                    if os.path.exists(simgd):
+                        dimgd = os.path.join(dstdir, "images")
+                        shutil.copytree(simgd, dimgd)
+                        nicopied += len(os.listdir(dimgd))
+                # epub
+                if build_epubs:
+                    epubdest = os.path.join(dstdir, "story.epub")
+                    converter = Html2EpubConverter(srcdir)
+                    converter.parse()
+                    converter.write(epubdest)
+                    epubtitlepagepath = os.path.join(epubpagedir, fsid + ".html")
+                    create_epub_title_page(
+                        epubtitlepagepath,
+                        fsid, 
+                        id2meta[fsid],
+                        include_images=include_images,
+                        )
+                # advance progress bar
+                pb.advance(1)
         reporter.msg("Done.")
         reporter.msg("   -> Copied {} stories".format(nscopied), end="")
         if include_images:
@@ -203,36 +239,38 @@ def build_zim(project, outpath, reporter=None):
         reporter.msg(".")
         
         # create category pages
-        reporter.msg("-> Creating category pages... ", end="")
-        category_dir = os.path.join(htmldir, "category")
-        if not os.path.exists(category_dir):
-            os.mkdir(category_dir)
-        ncreated = 0
-        for category in category2ids:
-            catdir = os.path.join(category_dir, bleach_name(category))
-            if not os.path.exists(catdir):
-                os.mkdir(catdir)
-            listfile = os.path.join(catdir, "list.html")
-            create_category_page(listfile, category)
-            metafile = os.path.join(catdir, "stories.json")
-            combined_meta = [e for e in metadata if "{}-{}".format(e["siteabbrev"], e["storyId"]) in category2ids[category]]
-            with open(metafile, "w") as fout:
-                json.dump(combined_meta, fout)
-            ncreated += 1
+        with reporter.with_progress("-> Creating category pages... ", n_categories) as pb:
+            category_dir = os.path.join(htmldir, "category")
+            if not os.path.exists(category_dir):
+                os.mkdir(category_dir)
+            ncreated = 0
+            for category in category2ids:
+                catdir = os.path.join(category_dir, bleach_name(category))
+                if not os.path.exists(catdir):
+                    os.mkdir(catdir)
+                listfile = os.path.join(catdir, "list.html")
+                create_category_page(listfile, category)
+                metafile = os.path.join(catdir, "stories.json")
+                combined_meta = [e for e in metadata if "{}-{}".format(e["siteabbrev"], e["storyId"]) in category2ids[category]]
+                with open(metafile, "w") as fout:
+                    json.dump(combined_meta, fout)
+                ncreated += 1
+                pb.advance(1)
         reporter.msg("Done.")
         reporter.msg("   -> Created {} pages.".format(ncreated))
         
         # create author pages
-        reporter.msg("Creating author pages... ", end="")
-        author_dir = os.path.join(htmldir, "author")
-        if not os.path.exists(author_dir):
-            os.mkdir(author_dir)
-        ncreated = 0
-        for authorid in authordata:
-            authorinfo = authordata[authorid]
-            authorpath = os.path.join(author_dir, str(authorid))
-            create_author_page(authorpath, authorinfo, id2meta)
-            ncreated += 1
+        with reporter.with_progress("Creating author pages... ", n_authors) as pb:
+            author_dir = os.path.join(htmldir, "author")
+            if not os.path.exists(author_dir):
+                os.mkdir(author_dir)
+            ncreated = 0
+            for authorid in authordata:
+                authorinfo = authordata[authorid]
+                authorpath = os.path.join(author_dir, str(authorid))
+                create_author_page(authorpath, authorinfo, id2meta)
+                ncreated += 1
+                pb.advance(1)
         reporter.msg("Done.")
         reporter.msg("   -> Created {} pages".format(ncreated))
         
