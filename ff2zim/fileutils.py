@@ -68,3 +68,47 @@ def copy_resource_file(name, dest):
     """
     p = os.path.join(os.path.dirname(__file__), "resources", name)
     shutil.copyfile(p, dest)
+
+
+def format_size(nbytes):
+    """
+    Format the given byte count into a human readable format.
+    
+    @param nbytes: size in bytes
+    @type nbytes: L{int}
+    @return: a human readable string describing the size
+    @rtype: L{str}
+    """
+    for fmt in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if nbytes < 1024.0:
+            return "{:.2f} {}".format(round(nbytes, 2), fmt)
+        else:
+            nbytes /= 1024.0
+    return "{:.2f} PiB".format(round(nbytes, 2))
+
+
+def get_size_of(path, extensions=None):
+    """
+    Get the size of a specified path in bytes.
+    
+    If path points to a directory, the size will be recursively calculated.
+    
+    @param path: path to get size of
+    @type path: L{str}
+    @param extensions: if specified, only files with these extensions will be taken into account
+    @return: the size of the path in bytes
+    @rtype: L{str}
+    """
+    if not os.path.exists(path):
+        return 0
+    if os.path.isdir(path):
+        s = 0
+        for fn in os.listdir(path):
+            fp = os.path.join(path, fn)
+            s += get_size_of(fp, extensions=extensions)
+        return s
+    else:
+        if extensions is not None:
+            if os.path.splitext(path)[1] not in extensions:
+                return 0
+        return os.stat(path).st_size

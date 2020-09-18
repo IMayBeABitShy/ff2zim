@@ -24,7 +24,7 @@ class Html2EpubConverter(object):
     """
     The HTML to EPUB converter.
     
-    @param path: path to write to
+    @param path: path to dir containing story and metadata
     @type path: L{str}
     @param include_images: if nonzero, include images in epub
     @type include_images: L{bool}
@@ -191,7 +191,7 @@ class Html2EpubConverter(object):
         Parse the whole input story.
         """
         self.parse_metadata()
-        self.add_images()  # <-- must6 be before parse_chapter_contents()
+        self.add_images()  # <-- must be before parse_chapter_contents()
         self.parse_chapter_contents()
     
     def write(self, path=None):

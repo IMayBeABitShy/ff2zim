@@ -5,9 +5,11 @@ managing the data and paths.
 import os
 import json
 
+from fanficfare.geturls import get_urls_from_imap
+
 from .exceptions import NotAValidProject, AlreadyExists, DirectoryNotEmpty
 from .reporter import BaseReporter, VoidReporter
-from .fileutils import create_file_with_content, append_to_file, download_file, copy_resource_file
+from .fileutils import create_file_with_content, append_to_file, download_file, copy_resource_file, get_size_of
 from .target import Target
 from .converter import get_metadata_converter
 
@@ -45,7 +47,10 @@ from .converter import get_metadata_converter
 # |  A list of URLs, one per line, which to download and include.
 # |
 # +-project.json
-#    Contains other project data.
+# |  Contains other project data.
+# |
+# +-to_update.json
+#    Contains the update-required status of the fanfics.
 
 
 TARGETLIST_DEFAULT_CONTENT = """
@@ -57,7 +62,7 @@ TARGETLIST_DEFAULT_CONTENT = """
 
 PROJECT_JSON_DEFAULT_CONTENT = """
 {
-    "version": "0.2",
+    "version": "0.2"
 }
 """
 
@@ -340,7 +345,7 @@ class Project(object):
             return []
         aliases = self.get_category_aliases()
         am = []
-        for abbrev in os.listdir(fp):
+        for abbrev in sorted(os.listdir(fp)):
             sp = os.path.join(fp, abbrev)
             story_ids = sorted(os.listdir(sp))
             for sid in story_ids:
@@ -396,3 +401,144 @@ class Project(object):
         else:
             aliases = {}
         return aliases
+    
+    def list_marked_for_update(self):
+        """
+        List all stories marked for update.
+        
+        @return: list of all targets to update
+        @rtype: L{list} of L{ff2zim.target.Target}
+        """
+        p = os.path.join(self.path, "to_update.json")
+        if not os.path.exists(p):
+            return []
+        else:
+            with open(p, "r") as fin:
+                to_update = json.load(fin)
+            return [Target(t) for t in to_update]
+    
+    def set_update_mark(self, url, status):
+        """
+        (Un-)mark an URL for update.
+        
+        @param url: url to mark for update
+        @type url: L{str}
+        @param status: new "update required"-status. If zero, it will be removed.
+        @type status: l{bool}
+        """
+        p = os.path.join(self.path, "to_update.json")
+        target = Target(url)
+        
+        if not os.path.exists(p):
+            to_update = []
+        else:
+            with open(p, "r") as fin:
+                to_update = json.load(fin)
+        
+        for old_url in to_update[:]:
+            ot = Target(old_url)
+            if ot == target:
+                if status:
+                    return
+                else:
+                    to_update.remove(old_url)
+        
+        if status:
+            to_update.append(url)
+        
+        with open(p, "w") as fout:
+            json.dump(to_update, fout)
+    
+    def update(self, url, reporter):
+        """
+        Update a story.
+        
+        @param url: url of story to update
+        @type url: L{str}
+        @param reporter: reporter for status reports
+        @type reporter: L{ff2zim.reporter.BaseReporter}
+        """
+        target = Target(url)
+        target.download(self, update=True, reporter=reporter)
+        self.set_update_mark(url, False)
+    
+    def check_imap_for_updates(self, srv, user, pswd, folder, reporter=None):
+        """
+        Check an IMAP server for update emails.
+        
+        @param srv: IMAP server IP/hostname
+        @type srv: L{str}
+        @param user: username for login
+        @type user: L{str}
+        @param pswd: password for user
+        @type pswd: L{str}
+        @param folder: folder to search for update
+        @type folder: L{str}
+        @param reporter: reporter for status reports
+        @type reporter: L{ff2zim.reporter.BaseReporter}
+        """
+        if reporter is None:
+            reporter = VoidReporter()
+        reporter.msg("Searching for URLs in IMAP server...")
+        urls = get_urls_from_imap(srv, user, pswd, folder, markread=True)
+        for url in urls:
+            reporter.msg("Marking '{}' for update...".format(url))
+            self.set_update_mark(url, True)
+    
+    def get_stats(self):
+        """
+        Get various stats of this project. e.g. various sizes.
+        
+        @return: a dict mapping statname -> value
+        @rtype: L{dict} of L{str} -> ?
+        """
+        # file sizes
+        size_all = get_size_of(self.path)
+        size_states = get_size_of(os.path.join(self.path, "target_urls.txt")) + get_size_of(os.path.join(self.path, "to_update.json"))
+        size_project_resources = get_size_of(os.path.join(self.path, "resources"))
+        
+        ffpath = os.path.join(self.path, "fanfics")
+        size_stories_full = get_size_of(ffpath)
+        size_stories = get_size_of(ffpath, extensions=(".html", ".HTML"))
+        size_story_metadata = get_size_of(ffpath, extensions=(".json", ".JSON"))
+        size_story_assets = size_stories_full - (size_stories + size_story_metadata)
+        
+        # counts
+        n_stories = 0
+        n_words = 0
+        n_chapters = 0
+        authors = set()
+        categories = set()
+        sources = set()
+        for metadata in self.collect_metadata():
+            n_stories += 1
+            n_words += metadata.get("numWords", 0)
+            n_chapters += metadata.get("numChapters", 0)
+            authors.add(metadata.get("author", "???"))
+            categories.add(metadata.get("category", "???"))
+            sources.add(metadata.get("site", "???"))
+        
+        n_authors = len(authors)
+        n_categories = len(categories)
+        n_sources = len(sources)
+        n_aliases = len(self.get_category_aliases())
+        
+        # return data
+        return {
+            "size_all": size_all,
+            "size_states": size_states,
+            "size_resources": size_project_resources,
+            "size_stories": size_stories_full,
+            "size_story_texts": size_stories,
+            "size_story_metadata": size_story_metadata,
+            "size_story_assets": size_story_assets,
+            
+            "n_stories": n_stories,
+            "n_authors": n_authors,
+            "n_categories": n_categories,
+            "n_aliases": n_aliases,
+            "n_sources": n_sources,
+            "n_words": n_words,
+            "n_chapters": n_chapters,
+        }
+        

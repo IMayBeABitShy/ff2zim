@@ -30,6 +30,8 @@ class Target(object):
     """
     
     def __init__(self, url):
+        if isinstance(url, Target):
+            url = url.url
         self.url = url
         configuration = Configuration(["test1.com"], "HTML", lightweight=True)
         try:
@@ -75,12 +77,14 @@ class Target(object):
         e2 = (other.abbrev, other.id)
         return (e1 > e2) - (e1 < e2)
     
-    def download(self, project, reporter=None):
+    def download(self, project, update=False, reporter=None):
         """
         Download the target into the specified project.
         
         @param project: project to download into
         @type project: L{ff2zim.project.Project}
+        @param update: if nonzero, update story
+        @type update: L{str}
         @param reporter: reporter for status reports
         @type reporter: L{ff2zim.reporter.BaseReporter}
         """
@@ -94,7 +98,7 @@ class Target(object):
         story_path = os.path.join(target_path, "story.html")
         metadata_path = os.path.join(target_path, "metadata.json")
         
-        if os.path.exists(story_path):
+        if os.path.exists(story_path) and not update:
             raise AlreadyExists("Story already exists!")
         
         reporter.msg("Downloading: {}... ".format(self.url), end="")
@@ -134,6 +138,15 @@ class Target(object):
                     fout.write(output)
                 reporter.msg("Done.")
     
+    @property
+    def full_id(self):
+        """
+        Return the full ID of the target.
+        
+        @return: the full ID consisting of site abbrev and story ID.
+        @rtype: L{str}
+        """
+        return self.abbrev + "-" + self.id
 
         
 

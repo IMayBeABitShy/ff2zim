@@ -4,12 +4,15 @@ The command line interface.
 import cmd
 import shlex
 import os
-import json
 import time
 import re
-from urllib.parse import urljoin
+import getpass
+from urllib.parse import urljoin, urlparse, parse_qs
 
 from fanficfare.geturls import get_urls_from_text
+
+import requests
+import bs4
 
 from .project import Project
 from .zimbuild import build_zim
@@ -17,6 +20,8 @@ from .exceptions import DirectoryNotEmpty, NotAValidTarget
 from .reporter import StdoutReporter
 from .target import Target
 from .epubconverter import Html2EpubConverter
+from .utils import bleach_name
+from .fileutils import format_size
 
 
 class FF2ZIMConsole(cmd.Cmd):
@@ -226,6 +231,61 @@ class FF2ZIMConsole(cmd.Cmd):
             for url in urls:
                 self.do_add(url)
     
+    def do_add_ffn_category(self, s):
+        """
+        add_ffn_category <category_url>: Add all stories from a ffn category URL.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        page = requests.get(s, params={"srt": "1", "r": "10"}).text
+        soup = bs4.BeautifulSoup(page, "html.parser")
+        last_a = soup.find("a", text="Last")
+        if last_a is not None:
+            n_pages = int(parse_qs(urlparse(last_a["href"]).query)["p"][0])
+        else:
+            next_a = soup.find("a", text="Next")
+            if next_a is None:
+                n_pages = 1
+            else:
+                n_pages = int(parse_qs(urlparse(last_a["href"]).query)["p"][0])
+        pages = [page]
+        for i in range(1, n_pages + 1):
+            url = "{}?srt=1&r=10&p={}".format(s, i)
+            page = requests.get(url).text
+            pages.append(page)
+            time.sleep(1)
+        all_urls = []
+        for page in pages:
+            matches = re.findall(r"/s/[0-9]+/", page)
+            urls = [urljoin("https://fanfiction.net/", e) for e in matches]
+            for url in urls:
+                if url not in all_urls:
+                    all_urls.append(url)
+        
+        # efficient insert
+        new_urls = sorted(all_urls)
+        old_urls = sorted([t.url for t in self.project.list_targets()])
+        nnu, nou = len(new_urls), len(old_urls)
+        ni, oi = 0, 0
+        while ni < nnu:
+            if oi >= nou:
+                # url is new
+                self.project.add_target(new_urls[ni])
+                ni += 1
+            else:
+                nu, ou = new_urls[ni], old_urls[oi]
+                if nu != ou:
+                    # url is new
+                    self.project.add_target(nu)
+                    ni += 1
+                else:
+                    # url is old
+                    print("Info: Target '{}' already defined, skipping...".format(nu))
+                    ni += 1
+                    oi += 1
+        
+    
     def do_download_all(self, s):
         """
         download_all: download all targets, except those already downloaded.
@@ -329,40 +389,196 @@ class FF2ZIMConsole(cmd.Cmd):
     
     def do_generate_epubs(self, s):
         """
-        generate_epubs <outdir>: generate epubs for all stories and save them to outdir.
+        generate_epubs [--by-category] <outdir>: generate epubs for all stories and save them to outdir.
         """
         if self.project is None:
             print("Error: No project selected.")
             return
-        outdir = s
+        splitted = shlex.split(s)
+        seperate_by_categories = False
+        if len(splitted) == 0:
+            print("Error: no out directory specified!")
+            return
+        elif len(splitted) == 1:
+            outdir = splitted[0]
+        elif len(splitted) == 2 and "--by-category" in splitted:
+            seperate_by_categories = True
+            splitted.remove("--by-category")
+            outdir = splitted[0]
+        else:
+            print("Error: invalid argument count")
+            return
         if not os.path.exists(outdir) or not os.path.isdir(outdir):
             print("Error: '{}' does not refer to a valid directory.".format(outdir))
             return
-        n_epubs = len(self.project.collect_metadata())
+        epubs_meta = self.project.collect_metadata()
+        n_epubs = len(epubs_meta)
         with self.reporter.with_progress("Generating EPUBs", n_epubs) as pb:
             storydir = os.path.join(self.project.path, "fanfics")
             n_generated = 0
             start = time.time()
-            for siteabbr in os.listdir(storydir):
+            for meta in epubs_meta:
+                siteabbr = meta.get("siteabbrev", "??")
                 sitepath = os.path.join(storydir, siteabbr)
-                for sid in os.listdir(sitepath):
-                    fdir = os.path.join(sitepath, sid)
-                    metapath = os.path.join(fdir, "metadata.json")
-                    with open(metapath, "r") as fin:
-                        content = json.load(fin)
-                    title = content.get("title", siteabbr + "_" + sid)
+                sid = meta["storyId"]
+                fdir = os.path.join(sitepath, sid)
+                title = meta.get("title", siteabbr + "_" + sid)
+                if seperate_by_categories:
+                    category = bleach_name(meta.get("category", "???"))
+                    cdir = os.path.join(outdir, category)
+                    if not os.path.exists(cdir):
+                        os.mkdir(cdir)
+                    outpath = os.path.join(cdir, title + ".epub")
+                else:
                     outpath = os.path.join(outdir, title + ".epub")
-                    converter = Html2EpubConverter(fdir)
-                    converter.parse()
-                    converter.write(outpath)
-                    n_generated += 1
-                    pb.advance(1)
+                converter = Html2EpubConverter(fdir)
+                converter.parse()
+                converter.write(outpath)
+                n_generated += 1
+                pb.advance(1)
         print("Done. Generated {n} EPUBs in {t:.2f}s.".format(
             n=n_generated,
             t=time.time() - start,
             )
         )
-
+    
+    def do_list_update_required(self, s):
+        """
+        list_update_required: List all stories requiring an update.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        for url in self.project.list_marked_for_update():
+            target = Target(url)
+            print(str(target))
+    
+    def do_mark_for_update(self, url):
+        """
+        mark_for_update <url>: mark an story for update.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        if len(url) == 0:
+            print("Error: missing 'url' parameter.")
+            return
+        else:
+            self.project.set_update_mark(url, True)
+    
+    def do_check_imap_for_updates(self, s):
+        """
+        check_imap_for_updates: check the IMAP server for updates.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        srv = self.project.get_option("imap", "server")
+        usr = self.project.get_option("imap", "user")
+        pswd = self.project.get_option("imap", "password")
+        folder = self.project.get_option("imap", "folder")
+        if (srv is None) or (usr is None) or (folder is None):
+            print("Error: IMAP not configured.")
+            print("Use 'imap_set' to configure IMAP.")
+            return
+        if pswd is None:
+            pswd = getpass.getpass("Password for '{}': ".format(usr))
+        self.project.check_imap_for_updates(srv, usr, pswd, folder, reporter=self.reporter)
+    
+    def do_imap_setup(self, s):
+        """
+        imap_setup: setup IMAP server update checks.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        
+        print("=========== IMAP SETUP =============")
+        print("ff2zim can use fanficfare to check your emails for story updates.")
+        print("To do this, please create a new folder on your IMAP server and auto-sort story update mails into that folder.")
+        print("Please ensure that IMAP access is allowed and that your server supports SSL.")
+        print("WARNING: ff2zim will mark emails containing story IDs as 'read'.")
+        print("")
+        if input("Continue? (Y/n) ").lower() not in ("y", "yes"):
+            print("Aborting.")
+            return
+        
+        server = input("IMAP server host: ")
+        user = input("User: ")
+        password = getpass.getpass("Password (WARNING: will be stored in plaintext, leave empty to be asked each time): ")
+        folder = input("Folder name: ")
+        print("Saving...")
+        self.project.set_option("imap", "server", server)
+        self.project.set_option("imap", "user", user)
+        if password:
+            self.project.set_option("imap", "password", password)
+        self.project.set_option("imap", "folder", folder)
+    
+    def do_update_all(self, s):
+        """
+        update_all: update all targets marked for update
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        targets = self.project.list_marked_for_update()
+        for target in targets:
+            self.project.update(target, reporter=self.reporter)
+    
+    def do_update_n(self, s):
+        """
+        update_n <n>: update n targets marked for update
+        """
+        try:
+            n = int(s)
+        except ValueError:
+            print("Error: Invalid value: {}".format(repr(s)))
+            return
+        if n <= 0:
+            print("Error: n is smaller than 0.")
+            return
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        targets = self.project.list_marked_for_update()
+        m = min(n, len(targets))
+        for i in range(m):
+            t = targets[i]
+            self.project.update(t, reporter=self.reporter)
+    
+    def do_stats(self, s):
+        """
+        stats: print statistics of this project.
+        """
+        stats = self.project.get_stats()
+        
+        print("=============== FILE SIZES ===============")
+        to_print = [
+            ("All", "size_all"),
+            ("Project state", "size_states"),
+            ("Project resources", "size_resources"),
+            ("Stories", "size_stories"),
+            (" -> Texts", "size_story_texts"),
+            (" -> Metadata", "size_story_metadata"),
+            (" -> Assets", "size_story_assets"),
+        ]
+        for name, key in to_print:
+            size = format_size(stats[key])
+            print("{:24s}{:>12}".format(name, size))
+        print("============== Content Stats ==============")
+        to_print = [
+            ("Stories", "n_stories"),
+            ("Authors", "n_authors"),
+            ("Categories", "n_categories"),
+            (" -> Aliases", "n_aliases"),
+            ("Sources", "n_sources"),
+            ("Chapters", "n_chapters"),
+            ("Words", "n_words"),
+        ]
+        for name, key in to_print:
+            num = stats[key]
+            print("{:24s}{:>12}".format(name, num))
+        
 
 
 def main():
