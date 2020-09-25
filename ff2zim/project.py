@@ -50,7 +50,10 @@ from .converter import get_metadata_converter
 # |  Contains other project data.
 # |
 # +-to_update.json
-#    Contains the update-required status of the fanfics.
+# |  Contains the update-required status of the fanfics.
+# |
+# +-subprojects.txt
+#    Contains a list of subprojects to include
 
 
 TARGETLIST_DEFAULT_CONTENT = """
@@ -125,6 +128,7 @@ class Project(object):
         
         create_file_with_content(os.path.join(path, "project.json"), PROJECT_JSON_DEFAULT_CONTENT)
         create_file_with_content(os.path.join(path, "target_urls.txt"), TARGETLIST_DEFAULT_CONTENT)
+        create_file_with_content(os.path.join(path, "subprojects.txt"), "")
         cls.populate_resources(path, reporter=reporter)
         
         reporter.msg("Project initialized.")
@@ -154,6 +158,29 @@ class Project(object):
         if not os.path.isfile(pp):
             return False
         return True
+    
+    def get_subprojects(self):
+        """
+        Return a list of subprojects of this project.
+        
+        @return: a list of subprojects
+        @rtype: L{list} of L{Project}
+        """
+        fp = os.path.join(self.path, "subprojects.txt")
+        if not os.path.exists(fp):
+            # no subprojects defined
+            return []
+        subprojects = []
+        with open(fp, "r") as fin:
+            for line in fin:
+                line = line.strip()
+                if line.startswith("#") or not line:
+                    continue
+                spp = os.path.normpath(os.path.join(self.path, line))
+                sp = self.__class__(spp)
+                subprojects.append(sp)
+                subprojects += sp.get_subprojects()
+        return subprojects
     
     def get_option(self, category, name=None, default=None):
         """
@@ -324,12 +351,14 @@ class Project(object):
             return False
     
     
-    def collect_metadata(self, reporter=None):
+    def collect_metadata(self, include_subprojects=True, reporter=None):
         """
         Return the combined metadata of all fanfics.
         
         This will be a list of the individual metadata.
         
+        @param include_subprojects: if nonzero, include subproject metadata
+        @type include_subprojects: L{bool}
         @param reporter: reporter used for status reports
         @type reporter: L{ff2zim.reporter.BaseReporter}
         
@@ -339,31 +368,35 @@ class Project(object):
         if reporter is None:
             reporter = VoidReporter()
         
-        fp = os.path.join(self.path, "fanfics")
-        if not os.path.exists(fp):
-            # empty
-            return []
-        aliases = self.get_category_aliases()
         am = []
-        for abbrev in sorted(os.listdir(fp)):
-            sp = os.path.join(fp, abbrev)
-            story_ids = sorted(os.listdir(sp))
-            for sid in story_ids:
-                smp = os.path.join(sp, sid, "metadata.json")
-                if not os.path.exists(smp):
-                    reporter.msg("WARNING: Story {} has no metadata!".format(sid))
-                    continue
-                with open(smp, "r") as fin:
-                    content = json.load(fin)
-                
-                # convert site dependent values
-                converter = get_metadata_converter(abbrev)
-                content = converter.convert(content)
-                
-                # resolve aliases
-                if "category" in content:
-                    content["category"] = aliases.get(content["category"], content["category"])
-                am.append(content)
+        fp = os.path.join(self.path, "fanfics")
+        if os.path.exists(fp):
+            aliases = self.get_category_aliases()
+            for abbrev in sorted(os.listdir(fp)):
+                sp = os.path.join(fp, abbrev)
+                story_ids = sorted(os.listdir(sp))
+                for sid in story_ids:
+                    smp = os.path.join(sp, sid, "metadata.json")
+                    if not os.path.exists(smp):
+                        reporter.msg("WARNING: Story {} has no metadata!".format(sid))
+                        continue
+                    with open(smp, "r") as fin:
+                        content = json.load(fin)
+                    
+                    # convert site dependent values
+                    converter = get_metadata_converter(abbrev)
+                    content = converter.convert(content)
+                    
+                    # resolve aliases
+                    if "category" in content:
+                        content["category"] = aliases.get(content["category"], content["category"])
+                    am.append(content)
+        
+        # update with subproject metadata
+        if include_subprojects:
+            for subproj in self.get_subprojects():
+                am += subproj.collect_metadata(reporter=reporter)
+        
         return am
     
     def add_category_alias(self,from_, to):
@@ -489,56 +522,93 @@ class Project(object):
         """
         Get various stats of this project. e.g. various sizes.
         
-        @return: a dict mapping statname -> value
-        @rtype: L{dict} of L{str} -> ?
+        @return: a list of dicts mapping statname -> value
+        @rtype: L{list} of L{dict} of L{str} -> ?
         """
-        # file sizes
-        size_all = get_size_of(self.path)
-        size_states = get_size_of(os.path.join(self.path, "target_urls.txt")) + get_size_of(os.path.join(self.path, "to_update.json"))
-        size_project_resources = get_size_of(os.path.join(self.path, "resources"))
         
-        ffpath = os.path.join(self.path, "fanfics")
-        size_stories_full = get_size_of(ffpath)
-        size_stories = get_size_of(ffpath, extensions=(".html", ".HTML"))
-        size_story_metadata = get_size_of(ffpath, extensions=(".json", ".JSON"))
-        size_story_assets = size_stories_full - (size_stories + size_story_metadata)
+        projects = [self] + self.get_subprojects()
+        stats = []
         
-        # counts
-        n_stories = 0
-        n_words = 0
-        n_chapters = 0
-        authors = set()
-        categories = set()
-        sources = set()
-        for metadata in self.collect_metadata():
-            n_stories += 1
-            n_words += metadata.get("numWords", 0)
-            n_chapters += metadata.get("numChapters", 0)
-            authors.add(metadata.get("author", "???"))
-            categories.add(metadata.get("category", "???"))
-            sources.add(metadata.get("site", "???"))
+        all_authors = set()
+        all_categories = set()
+        all_sources = set()
+        all_aliases = set()
         
-        n_authors = len(authors)
-        n_categories = len(categories)
-        n_sources = len(sources)
-        n_aliases = len(self.get_category_aliases())
-        
-        # return data
-        return {
-            "size_all": size_all,
-            "size_states": size_states,
-            "size_resources": size_project_resources,
-            "size_stories": size_stories_full,
-            "size_story_texts": size_stories,
-            "size_story_metadata": size_story_metadata,
-            "size_story_assets": size_story_assets,
+        for project in projects:
+            # various informations
+            name = project.get_option("project", "name", project.path)
             
-            "n_stories": n_stories,
-            "n_authors": n_authors,
-            "n_categories": n_categories,
-            "n_aliases": n_aliases,
-            "n_sources": n_sources,
-            "n_words": n_words,
-            "n_chapters": n_chapters,
-        }
+            # file sizes
+            size_all = get_size_of(project.path)
+            size_states = get_size_of(os.path.join(project.path, "target_urls.txt")) + get_size_of(os.path.join(project.path, "to_update.json"))
+            size_project_resources = get_size_of(os.path.join(project.path, "resources"))
+            
+            ffpath = os.path.join(project.path, "fanfics")
+            size_stories_full = get_size_of(ffpath)
+            size_stories = get_size_of(ffpath, extensions=(".html", ".HTML"))
+            size_story_metadata = get_size_of(ffpath, extensions=(".json", ".JSON"))
+            size_story_assets = size_stories_full - (size_stories + size_story_metadata)
+            
+            # counts
+            n_stories = 0
+            n_words = 0
+            n_chapters = 0
+            authors = set()
+            categories = set()
+            sources = set()
+            for metadata in project.collect_metadata(include_subprojects=False):
+                n_stories += 1
+                n_words += metadata.get("numWords", 0)
+                n_chapters += metadata.get("numChapters", 0)
+                authors.add(metadata.get("author", "???"))
+                categories.add(metadata.get("category", "???"))
+                sources.add(metadata.get("site", "???"))
+            
+            n_authors = len(authors)
+            n_categories = len(categories)
+            n_sources = len(sources)
+            n_aliases = len(project.get_category_aliases())
+            
+            # update all sets
+            all_authors.update(authors)
+            all_categories.update(categories)
+            all_sources.update(sources)
+            all_aliases.update(set(project.get_category_aliases()))
+            
+            # return data
+            stats.append({
+                "name": name,
+                
+                "size_all": size_all,
+                "size_states": size_states,
+                "size_resources": size_project_resources,
+                "size_stories": size_stories_full,
+                "size_story_texts": size_stories,
+                "size_story_metadata": size_story_metadata,
+                "size_story_assets": size_story_assets,
+                
+                "n_stories": n_stories,
+                "n_authors": n_authors,
+                "n_categories": n_categories,
+                "n_aliases": n_aliases,
+                "n_sources": n_sources,
+                "n_words": n_words,
+                "n_chapters": n_chapters,
+            })
+        
+        # add total stats
+        ts = {"name": "<Total>"}
+        for key in stats[0].keys():  # len(stats) always >= 1
+            if key.startswith("n_") or key.startswith("size_"):
+                ts[key] = sum([e[key] for e in stats])
+        # overwrite some of them with more sane stats
+        ts.update({
+            "n_authors": len(all_authors),
+            "n_categories": len(all_categories),
+            "n_aliases": len(all_aliases),
+            "n_sources": len(all_sources),
+        })
+        stats.append(ts)
+        
+        return stats
         

@@ -284,7 +284,6 @@ class FF2ZIMConsole(cmd.Cmd):
                     print("Info: Target '{}' already defined, skipping...".format(nu))
                     ni += 1
                     oi += 1
-        
     
     def do_download_all(self, s):
         """
@@ -550,35 +549,42 @@ class FF2ZIMConsole(cmd.Cmd):
         """
         stats: print statistics of this project.
         """
-        stats = self.project.get_stats()
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        allstats = self.project.get_stats()
         
-        print("=============== FILE SIZES ===============")
-        to_print = [
-            ("All", "size_all"),
-            ("Project state", "size_states"),
-            ("Project resources", "size_resources"),
-            ("Stories", "size_stories"),
-            (" -> Texts", "size_story_texts"),
-            (" -> Metadata", "size_story_metadata"),
-            (" -> Assets", "size_story_assets"),
-        ]
-        for name, key in to_print:
-            size = format_size(stats[key])
-            print("{:24s}{:>12}".format(name, size))
-        print("============== Content Stats ==============")
-        to_print = [
-            ("Stories", "n_stories"),
-            ("Authors", "n_authors"),
-            ("Categories", "n_categories"),
-            (" -> Aliases", "n_aliases"),
-            ("Sources", "n_sources"),
-            ("Chapters", "n_chapters"),
-            ("Words", "n_words"),
-        ]
-        for name, key in to_print:
-            num = stats[key]
-            print("{:24s}{:>12}".format(name, num))
+        for stats in allstats:
+            name = stats.get("name", "???")
+            print("==================== {} ===================".format(name))
         
+            print("-------------- FILE SIZES --------------")
+            to_print = [
+                ("All", "size_all"),
+                ("Project state", "size_states"),
+                ("Project resources", "size_resources"),
+                ("Stories", "size_stories"),
+                (" -> Texts", "size_story_texts"),
+                (" -> Metadata", "size_story_metadata"),
+                (" -> Assets", "size_story_assets"),
+            ]
+            for name, key in to_print:
+                size = format_size(stats[key])
+                print("{:24s}{:>12}".format(name, size))
+            print("-------------- Content Stats --------------")
+            to_print = [
+                ("Stories", "n_stories"),
+                ("Authors", "n_authors"),
+                ("Categories", "n_categories"),
+                (" -> Aliases", "n_aliases"),
+                ("Sources", "n_sources"),
+                ("Chapters", "n_chapters"),
+                ("Words", "n_words"),
+            ]
+            for name, key in to_print:
+                num = stats[key]
+                print("{:24s}{:>12}".format(name, num))
+
 
 
 def main():

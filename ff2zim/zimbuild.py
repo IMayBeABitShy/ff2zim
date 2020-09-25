@@ -107,6 +107,8 @@ def build_zim(project, outpath, reporter=None):
     if os.path.isdir(outpath):
         raise AlreadyExists("{} points to a directory.".format(outpath))
     
+    projects = [project] + project.get_subprojects()
+    
     with tempfile.TemporaryDirectory() as tempdir:
         reporter.msg("Using '{}' as build directory.".format(tempdir))
         
@@ -121,33 +123,44 @@ def build_zim(project, outpath, reporter=None):
         
         # collect metadata
         reporter.msg("-> Collecting metadata... ", end="")
-        metadata = project.collect_metadata()
+        # metadata = project.collect_metadata()
         
         id2meta = {}
+        metadata = []
         category2ids = {"ALL": []}
         authordata = {}
-        for e in metadata:
-            abbrev = e["siteabbrev"]
-            storyid = "{}-{}".format(abbrev, e["storyId"])
-            id2meta[storyid] = e
-            category = e["category"]
-            if category not in category2ids:
-                category2ids[category] = [storyid]
-            else:
-                category2ids[category].append(storyid)
-            category2ids["ALL"].append(storyid)
-            authororgid = e["authorId"]
-            authorid = "{}-{}".format(abbrev, authororgid)
-            if authorid not in authordata:
-                authordata[authorid] = {
-                    "name": e["author"],
-                    "id": authororgid,
-                    "url": e["authorUrl"],
-                    "html": e["authorHTML"],
-                    "stories": [storyid],
-                }
-            else:
-                authordata[authorid]["stories"].append(storyid)
+        projects_and_fsids = []
+        for proj in projects:
+            fsids = []
+            for e in proj.collect_metadata(include_subprojects=False):
+                abbrev = e["siteabbrev"]
+                storyid = "{}-{}".format(abbrev, e["storyId"])
+                if storyid in id2meta:
+                    # prevent duplicates
+                    # TODO: better take last updated here
+                    continue
+                fsids.append(storyid)
+                metadata.append(e)
+                id2meta[storyid] = e
+                category = e["category"]
+                if category not in category2ids:
+                    category2ids[category] = [storyid]
+                else:
+                    category2ids[category].append(storyid)
+                category2ids["ALL"].append(storyid)
+                authororgid = e["authorId"]
+                authorid = "{}-{}".format(abbrev, authororgid)
+                if authorid not in authordata:
+                    authordata[authorid] = {
+                        "name": e["author"],
+                        "id": authororgid,
+                        "url": e["authorUrl"],
+                        "html": e["authorHTML"],
+                        "stories": [storyid],
+                    }
+                else:
+                    authordata[authorid]["stories"].append(storyid)
+            projects_and_fsids.append((proj, fsids))
         reporter.msg("Done.")
         n_stories = len(id2meta.keys())
         n_categories = len(category2ids.keys())
@@ -180,63 +193,67 @@ def build_zim(project, outpath, reporter=None):
         reporter.msg("Done.")
         
         # copy stories
-        include_images = project.get_option("build", "include_images", True)
-        build_epubs    = project.get_option("build", "include_epubs", True)
-        desc = "-> Copying stories"
-        if include_images:
-            desc += " and images"
-        if build_epubs:
-            desc += ", building EPUBs"
-        desc += "..."
-        with reporter.with_progress(desc, n_stories) as pb:
+        reporter.msg("Copying stories...")
+        for proj, fsids in projects_and_fsids:
+            reporter.msg("-> {}".format(proj.path))
             nscopied = 0
             nicopied = 0
-            storydir = os.path.join(htmldir, "stories")
-            if not os.path.exists(storydir):
-                os.mkdir(storydir)
-            epubpagedir = os.path.join(htmldir, "epubs")
+            include_images = proj.get_option("build", "include_images", True)
+            build_epubs    = proj.get_option("build", "include_epubs", True)
+            desc = "   -> Copying stories"
+            if include_images:
+                desc += " and images"
             if build_epubs:
-                if not os.path.exists(epubpagedir):
-                    os.mkdir(epubpagedir)
-            for fsid in id2meta.keys():
-                # story
-                storydata = id2meta[fsid]
-                abbrev, sid = storydata["siteabbrev"], storydata["storyId"]
-                srcdir = os.path.join(project.path, "fanfics", abbrev, sid)
-                src = os.path.join(srcdir, "story.html")
-                dstdir = os.path.join(storydir, fsid)
-                dst = os.path.join(dstdir, "story.html")
-                if not os.path.exists(dstdir):
-                    os.mkdir(dstdir)
-                shutil.copyfile(src, dst)
-                nscopied += 1
-                # images
-                if include_images:
-                    simgd = os.path.join(srcdir, "images")
-                    if os.path.exists(simgd):
-                        dimgd = os.path.join(dstdir, "images")
-                        shutil.copytree(simgd, dimgd)
-                        nicopied += len(os.listdir(dimgd))
-                # epub
+                desc += ", building EPUBs"
+            desc += "..."
+            with reporter.with_progress(desc, len(fsids)) as pb:
+                storydir = os.path.join(htmldir, "stories")
+                if not os.path.exists(storydir):
+                    os.mkdir(storydir)
+                epubpagedir = os.path.join(htmldir, "epubs")
                 if build_epubs:
-                    epubdest = os.path.join(dstdir, "story.epub")
-                    converter = Html2EpubConverter(srcdir)
-                    converter.parse()
-                    converter.write(epubdest)
-                    epubtitlepagepath = os.path.join(epubpagedir, fsid + ".html")
-                    create_epub_title_page(
-                        epubtitlepagepath,
-                        fsid, 
-                        id2meta[fsid],
-                        include_images=include_images,
-                        )
-                # advance progress bar
-                pb.advance(1)
-        reporter.msg("Done.")
-        reporter.msg("   -> Copied {} stories".format(nscopied), end="")
-        if include_images:
-            reporter.msg(" and {} images".format(nicopied), end="")
-        reporter.msg(".")
+                    if not os.path.exists(epubpagedir):
+                        os.mkdir(epubpagedir)
+                # for fsid in id2meta.keys():
+                for fsid in fsids:
+                    # story
+                    storydata = id2meta[fsid]
+                    abbrev, sid = storydata["siteabbrev"], storydata["storyId"]
+                    srcdir = os.path.join(proj.path, "fanfics", abbrev, sid)
+                    src = os.path.join(srcdir, "story.html")
+                    dstdir = os.path.join(storydir, fsid)
+                    dst = os.path.join(dstdir, "story.html")
+                    if not os.path.exists(dstdir):
+                        os.mkdir(dstdir)
+                    shutil.copyfile(src, dst)
+                    nscopied += 1
+                    # images
+                    if include_images:
+                        simgd = os.path.join(srcdir, "images")
+                        if os.path.exists(simgd):
+                            dimgd = os.path.join(dstdir, "images")
+                            shutil.copytree(simgd, dimgd)
+                            nicopied += len(os.listdir(dimgd))
+                    # epub
+                    if build_epubs:
+                        epubdest = os.path.join(dstdir, "story.epub")
+                        converter = Html2EpubConverter(srcdir)
+                        converter.parse()
+                        converter.write(epubdest)
+                        epubtitlepagepath = os.path.join(epubpagedir, fsid + ".html")
+                        create_epub_title_page(
+                            epubtitlepagepath,
+                            fsid, 
+                            id2meta[fsid],
+                            include_images=include_images,
+                            )
+                    # advance progress bar
+                    pb.advance(1)
+            # reporter.msg("Done.")
+            reporter.msg("   -> Copied {} stories".format(nscopied), end="")
+            if include_images:
+                reporter.msg(" and {} images".format(nicopied), end="")
+            reporter.msg(".")
         
         # create category pages
         with reporter.with_progress("-> Creating category pages... ", n_categories) as pb:
@@ -256,7 +273,7 @@ def build_zim(project, outpath, reporter=None):
                     json.dump(combined_meta, fout)
                 ncreated += 1
                 pb.advance(1)
-        reporter.msg("Done.")
+        # reporter.msg("Done.")
         reporter.msg("   -> Created {} pages.".format(ncreated))
         
         # create author pages
@@ -271,7 +288,7 @@ def build_zim(project, outpath, reporter=None):
                 create_author_page(authorpath, authorinfo, id2meta)
                 ncreated += 1
                 pb.advance(1)
-        reporter.msg("Done.")
+        # reporter.msg("Done.")
         reporter.msg("   -> Created {} pages".format(ncreated))
         
         # create index page
