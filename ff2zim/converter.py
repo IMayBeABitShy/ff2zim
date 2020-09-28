@@ -37,6 +37,10 @@ class DefaultConverter(BaseMetadataConverter):
     def convert(data):
         data["numWords"] = str_to_int(data["numWords"])
         data["numChapters"] = str_to_int(data["numChapters"])
+        # split characters
+        data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
+        if "" in data["characters"]:
+            data["characters"].remove("")
         return data
         
     
@@ -53,6 +57,10 @@ class FFNetConverter(BaseMetadataConverter):
         data["numWords"] = str_to_int(data.get("numWords", "0"))
         data["reviews"] = str_to_int(data.get("reviews", "0"))
         data["storyId"] = data.get("storyId", "???")
+        # split characters
+        data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
+        if "" in data["characters"]:
+            data["characters"].remove("")
         return data
 
 
@@ -72,6 +80,10 @@ class AO3Converter(BaseMetadataConverter):
         data["numWords"] = str_to_int(data.get("numWords", "0"))
         data["reviews"] = str_to_int(data.get("comments", "0"))
         data["storyId"] = data.get("storyId", "???")
+        # split characters
+        data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
+        if "" in data["characters"]:
+            data["characters"].remove("")
         return data
 
 
@@ -93,6 +105,10 @@ class FSBConverter(BaseMetadataConverter):
         data["status"] = "Unknown"
         # data["reviews"] = str_to_int(data.get("comments", "0"))
         data["storyId"] = data.get("storyId", "???")
+        # split characters
+        data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
+        if "" in data["characters"]:
+            data["characters"].remove("")
         return data
 
 

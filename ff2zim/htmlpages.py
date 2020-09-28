@@ -198,51 +198,110 @@ EPUB_TEMPLATE = """<!DOCTYPE html>
 SORT_SCRIPT = """
 from javascript import JSON
 
-from browser import document, html
+from browser import document, html, bind
 
 TABLE_CONTAINER = "table_container"
 SORT_SETTINGS = "sort_settings"
-RATINGS = ["K", "K+", "T", "M", "ALL"]
-STATI = ["In-Progress", "Completed", "ALL"]
+RATINGS = ["K", "K+", "T", "M", "ANY"]
+STATI = ["In-Progress", "Completed", "ANY"]
+LANGUAGES = [("ANY", "ANY")]
+CHARACTERS = ["ANY"]
+
+METADATA = None
 
 
 def load_metadata():
     # load story metadata
+    global METADATA
     metadatapath = document.location.pathname.replace("/A/", "/-/", 1)
     metadatapath = metadatapath[:metadatapath.rfind("/") + 1] + "stories.json"
     with open(metadatapath, "r") as fin:
         content = fin.read()
-    metadata = JSON.parse(content)
-    return metadata
+    METADATA = JSON.parse(content)
+    
+
+
+def update_globals():
+    # update the global variables such as languages
+    global LANGUAGES, CHARACTERS
+    tlangs = set()
+    tlangs.add(("ANY", "ANY"))
+    tcharacters = set()
+    for e in METADATA:
+        langtuple = (e["language"], e["langcode"])
+        tlangs.add(langtuple)
+        storycharacters = e.get("characters", [])
+        for c in storycharacters:
+            tcharacters.add(c)
+    LANGUAGES = list(sorted(tlangs))
+    CHARACTERS = ["ANY"] + sorted(tcharacters)
 
 
 def get_sortinfo():
     # return the sort&filter settings
     sortinfo = {}
-    sortinfo["sort_by"] = document.query.getfirst("sortBy", "updated")
-    sortinfo["reverse"] = (document.query.getfirst("reverse", "0") == "1")
-    sortinfo["rating"] = document.query.getfirst("rating", "ALL")
-    sortinfo["status"] = document.query.getfirst("status", "ALL")
+    # sortinfo["language"] = document.query.getfirst("language", "ANY")
+    # sortinfo["rating"] = document.query.getfirst("rating", "ANY")
+    # sortinfo["status"] = document.query.getfirst("status", "ANY")
+    # sortinfo["sort_by"] = document.query.getfirst("sortBy", "updated")
+    # sortinfo["reverse"] = (document.query.getfirst("reverse", "0") == "1")
+    # sortinfo["characters"] = [c.replace("+", " ") for c in document.query.getlist("characters")]
+    
+    if "language" not in document:
+        # settings not yet populated, return default
+        return {
+            "language": "ANY",
+            "rating": "ANY",
+            "status": "ANY",
+            "sort_by": "updated",
+            "reverse": False,
+            "characters": ["ANY"],
+        }
+        
+    sortinfo["language"] = document["language"].value
+    sortinfo["rating"] = document["rating"].value
+    sortinfo["status"] = document["status"].value
+    sortinfo["sort_by"] = document["sortBy"].value
+    sortinfo["reverse"] = document["characters"].value
+    sortinfo["characters"] = [option.value for option in document["characters"] if option.selected]
     return sortinfo
 
 
-def sort_entries(metadata, sortinfo):
+def sort_entries(sortinfo):
     # sort and filter the entries
     
     filtered = []
-    for e in metadata:
+    for e in METADATA:
+        
+        # filter language
+        if sortinfo["language"] != "ANY":
+            if e.get("langcode") != sortinfo["language"]:
+                continue
+        
         # filter rating
-        if sortinfo["rating"] != "ALL":
+        if sortinfo["rating"] != "ANY":
             if e.get("rating", "M") != sortinfo["rating"]:
                 continue
                 
         # filter status
-        if sortinfo["status"] != "ALL":
+        if sortinfo["status"] != "ANY":
             if e.get("status", "???") != sortinfo["status"]:
                 continue
         
+        # filter characters
+        characters = e.get("characters", [])
+        chars_valid = True
+        for cn in sortinfo["characters"]:
+            if cn == "ANY":
+                break
+            elif cn not in characters:
+                chars_valid = False
+                break
+        if not chars_valid:
+            # characters do not match
+            continue
+        
         filtered.append(e)
-        # TODO: filter
     
     # set sort
     sortname = sortinfo.get("sort_by", "title")
@@ -272,6 +331,9 @@ def sort_entries(metadata, sortinfo):
         invert_reverse = True
     elif sortname == "author":
         sortkey = lambda x: x.get("author", "???")
+    elif sortname == "words_per_chapter":
+        sortkey = lambda x: x.get("numWords", 0) / x.get("numChapters", 1)
+        invert_reverse = True
     else:
         raise ValueError("Unknown sort: " + sortname)
     
@@ -285,7 +347,7 @@ def sort_entries(metadata, sortinfo):
 
 def create_table(sorted_entries):
     # create the table containing the sorted entries.
-    tbl = html.TABLE(border=1, **{"class": "stories"})
+    tbl = html.TABLE(border=1, id="table_results", **{"class": "stories"})
     tbl <= html.TR(html.TH("Story") + html.TH("Author") + html.TH("Description") + html.TH("Stats"))
     for e in sorted_entries:
         title = e["title"]
@@ -318,22 +380,52 @@ def create_table(sorted_entries):
 
 def update_table():
     # update the table based on the sort.
-    metadata = load_metadata()
     sortinfo = get_sortinfo()
-    entries = sort_entries(metadata, sortinfo)
+    entries = sort_entries(sortinfo)
     container = document[TABLE_CONTAINER]
     for child in container.children:
         del document[child.id]
-    document[TABLE_CONTAINER] <= create_table(entries)
+    if len(entries) == 0:
+        document[TABLE_CONTAINER] <= html.P("No stories matching your query could be found.", id="text_noresult")
+    else:
+        document[TABLE_CONTAINER] <= create_table(entries)
 
 
 def create_settings():
+    # create the sort and filter form
     current = get_sortinfo()
+    cur_lang = current["language"]
     cur_sel = current["sort_by"]
     cur_rating = current["rating"]
     cur_status = current["status"]
+    cur_chars = current["characters"]
     div = html.DIV()
     form = html.FORM(**{"class": "sort_form"})
+    # language
+    form <= html.LABEL("Language:", **{"for": "language", })
+    form <= html.SELECT(
+        [html.OPTION(langname, value=langcode, selected=(cur_lang == langcode)) for (langname, langcode) in LANGUAGES],
+        id="language",
+        name="language",
+    )
+    form <= html.BR()
+    # age rating
+    form <= html.LABEL("Rating:", **{"for": "rating", })
+    form <= html.SELECT(
+        [html.OPTION(r, value=r, selected=(cur_rating == r)) for r in RATINGS],
+        id="rating",
+        name="rating",
+    )
+    form <= html.BR()
+    # completion status
+    form <= html.LABEL("Status:", **{"for": "status", })
+    form <= html.SELECT(
+        [html.OPTION(s, value=s, selected=(cur_status == s)) for s in STATI],
+        id="status",
+        name="status",
+    )
+    form <= html.BR()
+    # sort and order reversal
     form <= html.LABEL("Sort By:", **{"for": "sortBy", })
     form <= html.SELECT(
         [
@@ -346,6 +438,7 @@ def create_settings():
             html.OPTION("Title", value="title", selected=(cur_sel == "title")),
             html.OPTION("Updated", value="updated", selected=(cur_sel == "updated")),
             html.OPTION("Words", value="words", selected=(cur_sel == "words")),
+            html.OPTION("Words/Chapter", value="words_per_chapter", selected=(cur_sel == "words_per_chapter")),
         ],
         id="sortBy",
         name="sortBy",
@@ -354,26 +447,36 @@ def create_settings():
     form <= html.LABEL("Reverse Order:", **{"for": "reverse", })
     form <= html.INPUT(type="checkbox", name="reverse", id="reverse", value="1", checked=(current["reverse"]))
     form <= html.BR()
-    form <= html.LABEL("Rating:", **{"for": "rating", })
+    
+    # characters
+    form <= html.LABEL("Characters:", **{"for": "characters", })
     form <= html.SELECT(
-        [html.OPTION(r, value=r, selected=(cur_rating == r)) for r in RATINGS],
-        id="rating",
-        name="rating",
+        [html.OPTION(character, value=character, selected=(character in cur_chars)) for character in CHARACTERS],
+        id="characters",
+        name="characters",
+        multiple=True,
     )
-    form <= html.BR()
-    form <= html.LABEL("Status:", **{"for": "status", })
-    form <= html.SELECT(
-        [html.OPTION(s, value=s, selected=(cur_status == s)) for s in STATI],
-        id="status",
-        name="status",
-    )
-    form <= html.BR()
-    form <= html.INPUT(type="submit")
+    # submit button
+    submit_button = html.INPUT(id="update_button", type="submit", value="Sort & Filter")
+    submit_button.bind("click", on_submit)
+    form <= submit_button
     div <= form
     document[SORT_SETTINGS] <= div
 
-create_settings()
-update_table()
+
+def on_submit(evt):
+    # on submit
+    evt.preventDefault()
+    update_table()
+
+def main():
+    # the main function
+    load_metadata()
+    update_globals()
+    create_settings()
+    update_table()
+
+main()
 """
 
 STYLE_CONTENT = """
