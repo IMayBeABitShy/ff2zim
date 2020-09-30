@@ -6,6 +6,7 @@ import json
 
 from .utils import bleach_name
 from .fileutils import create_file_with_content
+from .minify import minify_css, minify_html, minify_python, minify_metadata
 
 
 INDEX_TEMPLATE = """<!DOCTYPE html>
@@ -13,7 +14,7 @@ INDEX_TEMPLATE = """<!DOCTYPE html>
     <HEAD>
         <META charset="UTF-8">
         <title>{title}</title>
-        <link rel="stylesheet" href="../../resources/styles.css">
+        <link rel="stylesheet" href="resources/styles.css">
     </HEAD>
     <BODY>
         <H1>{title}</H1>
@@ -57,7 +58,7 @@ STATPAGE_TEMPLATE = """<!DOCTYPE html>
     <HEAD>
         <META charset="UTF-8">
         <title>Statistics</title>
-        <link rel="stylesheet" href="../../resources/styles.css">
+        <link rel="stylesheet" href="resources/styles.css">
     </HEAD>
     <BODY>
         <H1>Statistics</H1>
@@ -213,7 +214,7 @@ METADATA = None
 def load_metadata():
     # load story metadata
     global METADATA
-    metadatapath = document.location.pathname.replace("/A/", "/-/", 1)
+    metadatapath = document.location.pathname
     metadatapath = metadatapath[:metadatapath.rfind("/") + 1] + "stories.json"
     with open(metadatapath, "r") as fin:
         content = fin.read()
@@ -262,7 +263,7 @@ def get_sortinfo():
     sortinfo["rating"] = document["rating"].value
     sortinfo["status"] = document["status"].value
     sortinfo["sort_by"] = document["sortBy"].value
-    sortinfo["reverse"] = document["characters"].value
+    sortinfo["reverse"] = document["reverse"].value
     sortinfo["characters"] = [option.value for option in document["characters"] if option.selected]
     return sortinfo
 
@@ -401,6 +402,7 @@ def create_settings():
     cur_chars = current["characters"]
     div = html.DIV()
     form = html.FORM(**{"class": "sort_form"})
+    
     # language
     form <= html.LABEL("Language:", **{"for": "language", })
     form <= html.SELECT(
@@ -409,6 +411,7 @@ def create_settings():
         name="language",
     )
     form <= html.BR()
+    
     # age rating
     form <= html.LABEL("Rating:", **{"for": "rating", })
     form <= html.SELECT(
@@ -417,6 +420,7 @@ def create_settings():
         name="rating",
     )
     form <= html.BR()
+    
     # completion status
     form <= html.LABEL("Status:", **{"for": "status", })
     form <= html.SELECT(
@@ -425,6 +429,16 @@ def create_settings():
         name="status",
     )
     form <= html.BR()
+    
+    # characters
+    form <= html.LABEL("Characters:", **{"for": "characters", })
+    form <= html.SELECT(
+        [html.OPTION(character, value=character, selected=(character in cur_chars)) for character in CHARACTERS],
+        id="characters",
+        name="characters",
+        multiple=True,
+    )
+    
     # sort and order reversal
     form <= html.LABEL("Sort By:", **{"for": "sortBy", })
     form <= html.SELECT(
@@ -448,14 +462,6 @@ def create_settings():
     form <= html.INPUT(type="checkbox", name="reverse", id="reverse", value="1", checked=(current["reverse"]))
     form <= html.BR()
     
-    # characters
-    form <= html.LABEL("Characters:", **{"for": "characters", })
-    form <= html.SELECT(
-        [html.OPTION(character, value=character, selected=(character in cur_chars)) for character in CHARACTERS],
-        id="characters",
-        name="characters",
-        multiple=True,
-    )
     # submit button
     submit_button = html.INPUT(id="update_button", type="submit", value="Sort & Filter")
     submit_button.bind("click", on_submit)
@@ -552,10 +558,14 @@ table, th, tr {
 .content_stats TH {
     background: darkgrey;
 }
+
+.sort_settings SELECT {
+    width: 512px;
+}
 """
 
 
-def create_author_page(path, authorinfo, id2meta):
+def create_author_page(path, authorinfo, id2meta, minify=False):
     """
     Create an author page.
     
@@ -565,6 +575,8 @@ def create_author_page(path, authorinfo, id2meta):
     @type authorinfo: L{dict}
     @param id2meta: a dict mapping story IDs to their metadata
     @type id2meta: L{dict}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
     assert isinstance(path, str)
     assert isinstance(authorinfo, dict)
@@ -579,12 +591,15 @@ def create_author_page(path, authorinfo, id2meta):
         html=authorinfo["html"],
         id=authorinfo["id"],
         )
-    create_file_with_content(pagepath, authorcontent)
     metadata = [id2meta[sid] for sid in authorinfo["stories"]]
+    if minify:
+        authorcontent = minify_html(authorcontent)
+        minify_metadata(metadata)
+    create_file_with_content(pagepath, authorcontent)
     create_file_with_content(datapath, json.dumps(metadata))
 
 
-def create_category_page(path, name):
+def create_category_page(path, name, minify=False):
     """
     Create a category page.
     
@@ -592,14 +607,18 @@ def create_category_page(path, name):
     @type path: L{str}
     @param name: name of categiry
     @type name: L{str}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
     assert isinstance(path, str)
     assert isinstance(name, str)
     content = CATEGORY_TEMPLATE.format(name=name)
+    if minify:
+        content = minify_html(content)
     create_file_with_content(path, content)
 
 
-def create_index_page(path, id2meta, category2ids, authordata):
+def create_index_page(path, id2meta, category2ids, authordata, minify=False):
     """
     Create the index/welcome page.
     
@@ -611,6 +630,8 @@ def create_index_page(path, id2meta, category2ids, authordata):
     @type category2ids: L{dict}
     @param authordata: a dict mapping authorIDs to information about them
     @type authordata: L{str}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
     assert isinstance(path, str)
     assert isinstance(id2meta, dict)
@@ -654,10 +675,12 @@ def create_index_page(path, id2meta, category2ids, authordata):
         nwords=nwords,
         categories=category_table,
     )
+    if minify:
+        html = minify_html(html)
     create_file_with_content(path, html)
 
 
-def create_stats_page(path, id2meta, category2ids, authordata):
+def create_stats_page(path, id2meta, category2ids, authordata, minify=False):
     """
     Create the statistics page.
     
@@ -669,6 +692,8 @@ def create_stats_page(path, id2meta, category2ids, authordata):
     @type category2ids: L{dict}
     @param authordata: a dict mapping authorIDs to information about them
     @type authordata: L{str}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
     assert isinstance(path, str)
     assert isinstance(id2meta, dict)
@@ -706,10 +731,12 @@ def create_stats_page(path, id2meta, category2ids, authordata):
         wcin_upper=(nwords / 60000.0),
         wcib=(nwords / 789650.0),
     )
+    if minify:
+        html = minify_html(html)
     create_file_with_content(path, html)
 
 
-def create_epub_title_page(path, fsid, metadata, include_images=False):
+def create_epub_title_page(path, fsid, metadata, include_images=False, minify=False):
     """
     Write a title page for an epub download.
     
@@ -721,6 +748,8 @@ def create_epub_title_page(path, fsid, metadata, include_images=False):
     @type metadata: L{dict}
     @param include_images: if nonzero, include the cover in the output.
     @type include_images: L{bool}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
     page = EPUB_TEMPLATE.format(
         fsid=fsid,
@@ -734,23 +763,36 @@ def create_epub_title_page(path, fsid, metadata, include_images=False):
         packaged=metadata.get("dateCreated", "???"),
         cover=('<CENTER><img src="../stories/{}/images/cover.jpg" alt="cover"></CENTER>'.format(fsid) if include_images else ""),
         )
+    if minify:
+        page = minify_html(page)
     create_file_with_content(path, page)
 
-def create_sort_script(path):
+
+def create_sort_script(path, minify=False):
     """
     Write the sort script to the given path.
     
     @param path: path to write to
     @type path: L{str}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
-    create_file_with_content(path, SORT_SCRIPT)
+    script = SORT_SCRIPT
+    if minify:
+        script = minify_python(script)
+    create_file_with_content(path, script)
 
 
-def create_style_file(path):
+def create_style_file(path, minify=False):
     """
     Write the CSS style sheet to the given path.
     
     @param path: path to write to
     @type path: L{str}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
     """
-    create_file_with_content(path, STYLE_CONTENT)
+    css = STYLE_CONTENT
+    if minify:
+        css = minify_css(css)
+    create_file_with_content(path, css)

@@ -29,7 +29,7 @@ def download_file(url, path):
             fout.write(chunk)
 
 
-def create_file_with_content(path, content):
+def create_file_with_content(path, content, replace=False):
     """
     Create a file with the specified content.
     
@@ -37,8 +37,10 @@ def create_file_with_content(path, content):
     @type path: L{str}
     @param content: content to write
     @type content: L{str}
+    @param replace: if not True, raise an exception if file already exists.
+    @type replace: L{bool}
     """
-    if os.path.exists(path):
+    if os.path.exists(path) and not replace:
         raise AlreadyExists("Path '{}' already exists.".format(path))
     with open(path, "w") as fout:
         fout.write(content)

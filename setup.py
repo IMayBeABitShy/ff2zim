@@ -23,6 +23,13 @@ setup(
         "bs4",
         "six",
     ],
+    extras_require={
+        "minify": [
+            "htmlmin",
+            "csscompressor",
+            "python-minifier",
+            ],
+    },
     entry_points={
         "console_scripts": [
             "ff2zim = ff2zim.cli:main",

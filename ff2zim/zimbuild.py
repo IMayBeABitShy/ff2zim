@@ -18,6 +18,7 @@ from .htmlpages import (
     )
 from .utils import bleach_name
 from .epubconverter import Html2EpubConverter
+from .minify import minify_file, minify_metadata
 
 
 # BUILD DIRECTORY STRUCTURE
@@ -86,6 +87,7 @@ from .epubconverter import Html2EpubConverter
 #     +-ABBREV-ID.html
 #         The epub title page, identified by abbrev+id combo
 
+
 def build_zim(project, outpath, reporter=None):
     """
     Build a project into a ZIM file.
@@ -117,9 +119,23 @@ def build_zim(project, outpath, reporter=None):
         if not os.path.exists(tempdir):
             os.makedirs(tempdir)
         
+        reporter.msg("-> Creating build directory... ", end="")
         htmldir = os.path.join(tempdir, "html")
         if not os.path.exists(htmldir):
             os.mkdir(htmldir)
+        reporter.msg("Done.")
+        
+        # gather buildoptions
+        reporter.msg("-> Collecting build options... ", end="")
+        minify          = project.get_option("build", "minify", False)
+        include_images  = project.get_option("build", "include_images", True)
+        build_epubs     = project.get_option("build", "include_epubs", True)
+        zim_title       = project.get_option("build", "title", "fanfiction archive")
+        zim_language    = project.get_option("build", "language", "EN")
+        zim_description = project.get_option("build", "description", "Archieved fanfictions")
+        zim_creator     = project.get_option("build", "creator", "various")
+        zim_publisher   = project.get_option("build", "publisher", "UNKNOWN")
+        reporter.msg("Done.")
         
         # collect metadata
         reporter.msg("-> Collecting metadata... ", end="")
@@ -187,9 +203,9 @@ def build_zim(project, outpath, reporter=None):
         #     os.path.join(resourcedir, "brython_stdlib.js"),
         # )
         sortpath = os.path.join(resourcedir, "sort.py")
-        create_sort_script(sortpath)
+        create_sort_script(sortpath, minify=minify)
         csspath = os.path.join(resourcedir, "styles.css")
-        create_style_file(csspath)
+        create_style_file(csspath, minify=minify)
         reporter.msg("Done.")
         
         # copy stories
@@ -198,9 +214,7 @@ def build_zim(project, outpath, reporter=None):
             reporter.msg("-> {}".format(proj.path))
             nscopied = 0
             nicopied = 0
-            include_images = proj.get_option("build", "include_images", True)
-            build_epubs    = proj.get_option("build", "include_epubs", True)
-            desc = "   -> Copying stories"
+            desc = "   -> Copying {}stories".format("minified " if minify else "")
             if include_images:
                 desc += " and images"
             if build_epubs:
@@ -226,6 +240,8 @@ def build_zim(project, outpath, reporter=None):
                     if not os.path.exists(dstdir):
                         os.mkdir(dstdir)
                     shutil.copyfile(src, dst)
+                    if minify:
+                        minify_file(dst)
                     nscopied += 1
                     # images
                     if include_images:
@@ -246,6 +262,7 @@ def build_zim(project, outpath, reporter=None):
                             fsid, 
                             id2meta[fsid],
                             include_images=include_images,
+                            minify=minify,
                             )
                     # advance progress bar
                     pb.advance(1)
@@ -266,9 +283,11 @@ def build_zim(project, outpath, reporter=None):
                 if not os.path.exists(catdir):
                     os.mkdir(catdir)
                 listfile = os.path.join(catdir, "list.html")
-                create_category_page(listfile, category)
+                create_category_page(listfile, category, minify=minify)
                 metafile = os.path.join(catdir, "stories.json")
                 combined_meta = [e for e in metadata if "{}-{}".format(e["siteabbrev"], e["storyId"]) in category2ids[category]]
+                if minify:
+                    minify_metadata(metadata)
                 with open(metafile, "w") as fout:
                     json.dump(combined_meta, fout)
                 ncreated += 1
@@ -285,7 +304,7 @@ def build_zim(project, outpath, reporter=None):
             for authorid in authordata:
                 authorinfo = authordata[authorid]
                 authorpath = os.path.join(author_dir, str(authorid))
-                create_author_page(authorpath, authorinfo, id2meta)
+                create_author_page(authorpath, authorinfo, id2meta, minify=minify)
                 ncreated += 1
                 pb.advance(1)
         # reporter.msg("Done.")
@@ -294,25 +313,16 @@ def build_zim(project, outpath, reporter=None):
         # create index page
         reporter.msg("Creating index page... ", end="")
         indexpath = os.path.join(htmldir, "index.html")
-        create_index_page(indexpath, id2meta, category2ids, authordata)
+        create_index_page(indexpath, id2meta, category2ids, authordata, minify=minify)
         reporter.msg("Done.")
         
         # create statpage
         reporter.msg("Creating statistics page... ", end="")
         statpath = os.path.join(htmldir, "stats.html")
-        create_stats_page(statpath, id2meta, category2ids, authordata)
+        create_stats_page(statpath, id2meta, category2ids, authordata, minify=minify)
         reporter.msg("Done.")
         
         # ---------- actual build -----------
-        
-        # gather buildoptions
-        reporter.msg("Collecting build options... ", end="")
-        title       = project.get_option("build", "title", "fanfiction archive")
-        language    = project.get_option("build", "language", "EN")
-        description = project.get_option("build", "description", "Archived fanfictions")
-        creator     = project.get_option("build", "creator", "various")
-        publisher   = project.get_option("build", "publisher", "UNKNOWN")
-        reporter.msg("Done.")
         
         # build zim
         reporter.msg("Building...")
@@ -321,12 +331,13 @@ def build_zim(project, outpath, reporter=None):
                 "zimwriterfs",
                 "-w", "index.html",
                 "-f", "resources/favicon.icon",
-                "-l", language,
-                "-t", title,
-                "-d", description,
-                "-c", creator,
-                "-p", publisher,
+                "-l", zim_language,
+                "-t", zim_title,
+                "-d", zim_description,
+                "-c", zim_creator,
+                "-p", zim_publisher,
                 "-i",
+                "-u",  # because namespaces will be removed
                 htmldir,
                 outpath,
             ],
