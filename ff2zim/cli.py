@@ -5,14 +5,9 @@ import cmd
 import shlex
 import os
 import time
-import re
 import getpass
-from urllib.parse import urljoin, urlparse, parse_qs
 
 from fanficfare.geturls import get_urls_from_text
-
-import requests
-import bs4
 
 from .project import Project
 from .zimbuild import build_zim
@@ -22,6 +17,8 @@ from .target import Target
 from .epubconverter import Html2EpubConverter
 from .utils import bleach_name
 from .fileutils import format_size
+from . import ffnetutils
+import datetime
 
 
 class FF2ZIMConsole(cmd.Cmd):
@@ -213,7 +210,7 @@ class FF2ZIMConsole(cmd.Cmd):
             for url in urls:
                 self.do_add(url)
     
-    def do_add_ffn_from_file(self, s):
+    def do_add_ffnet_from_file(self, s):
         """
         add_ffn_from_file <path>: Add all URLs/IDS from ffn in a file to the target list.
         """
@@ -226,42 +223,25 @@ class FF2ZIMConsole(cmd.Cmd):
         else:
             with open(s, "r") as fin:
                 content = fin.read()
-            matches = re.findall(r"/s/[0-9]+/", content)
-            urls = [urljoin("https://fanfiction.net/", e) for e in matches]
+            urls = ffnetutils.find_ffnet_ids_in_str(content)
             for url in urls:
                 self.do_add(url)
     
-    def do_add_ffn_category(self, s):
+    def do_add_ffnet_category(self, s):
         """
         add_ffn_category <category_url>: Add all stories from a ffn category URL.
         """
         if self.project is None:
             print("Error: No project selected.")
             return
-        page = requests.get(s, params={"srt": "1", "r": "10"}).text
-        soup = bs4.BeautifulSoup(page, "html.parser")
-        last_a = soup.find("a", text="Last")
-        if last_a is not None:
-            n_pages = int(parse_qs(urlparse(last_a["href"]).query)["p"][0])
-        else:
-            next_a = soup.find("a", text="Next")
-            if next_a is None:
-                n_pages = 1
-            else:
-                n_pages = int(parse_qs(urlparse(last_a["href"]).query)["p"][0])
-        pages = [page]
-        for i in range(1, n_pages + 1):
-            url = "{}?srt=1&r=10&p={}".format(s, i)
-            page = requests.get(url).text
-            pages.append(page)
-            time.sleep(1)
-        all_urls = []
-        for page in pages:
-            matches = re.findall(r"/s/[0-9]+/", page)
-            urls = [urljoin("https://fanfiction.net/", e) for e in matches]
-            for url in urls:
-                if url not in all_urls:
-                    all_urls.append(url)
+        elif not s:
+            print("Error: no category specified!")
+            return
+        elif not "://" in s:
+            print("Error: category does not seem to be an URL including scheme!")
+            return
+        
+        all_urls = ffnetutils.get_urls_from_ffnet_category(s)
         
         # efficient insert
         new_urls = sorted(all_urls)
@@ -284,6 +264,64 @@ class FF2ZIMConsole(cmd.Cmd):
                     print("Info: Target '{}' already defined, skipping...".format(nu))
                     ni += 1
                     oi += 1
+    
+    
+    def do_check_ffnet_category_for_updates(self, s):
+        """
+        check_ffnet_category_for_updates <category>: check ffnet category for new or updated stories.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        elif not s:
+            print("Error: no category specified!")
+            return
+        elif not "://" in s:
+            print("Error: category does not seem to be an URL including scheme!")
+            return
+        
+        # get actual category title
+        print("Retrieving category title... ", end="")
+        category_title = ffnetutils.get_ffnet_category_name_by_url(s)
+        print("Done.")
+        # collect relevant metadata
+        print("Collecting metadata... ", end="")
+        metadata = self.project.collect_metadata(include_subprojects=False, reporter=self.reporter)
+        metadata = [e for e in metadata if e["category"] == category_title]
+        print("Done.")
+        if not metadata:
+            print("No older entries detected, marking all for download.")
+            since = -1
+        else:
+            updated_times = []
+            for e in metadata:
+                raw = e["dateUpdated"]
+                for fmt in ("%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+                    try:
+                        value = datetime.datetime.strptime(raw, fmt).timestamp()
+                        break
+                    except ValueError:
+                        continue
+                else:
+                    # invalid format
+                    value = 0
+                updated_times.append(value)
+            since = max(updated_times)
+        urls = ffnetutils.get_urls_from_ffnet_category(s, since=since)
+        
+        if not urls:
+            print("No updates found.")
+            return
+        
+        for url in urls:
+            if self.project.has_target_locally(url):
+                print("Marking '{}' for update...".format(url))
+                self.project.set_update_mark(url, True)
+            else:
+                print("Adding '{}' as target...".format(url))
+                self.project.add_target(url)
+        print("Done.")
+        
     
     def do_download_all(self, s):
         """
