@@ -49,6 +49,7 @@ INDEX_TEMPLATE = """<!DOCTYPE html>
         <BR>
         <hr>
         {categories}
+        <hr>
     </BODY>
 </HTML>
 """
@@ -129,17 +130,23 @@ CATEGORY_TEMPLATE = """<!DOCTYPE html>
         <script type="text/javascript" src="../../resources/brython.js"></script>
         <!-- <script type="text/javascript" src="../../resources/brython_stdlib.js"></script> -->
         <link rel="stylesheet" href="../../resources/styles.css">
+        <noscript><style> .jsonly {{display: none;}} </style></noscript>
     </HEAD>
     <BODY onload="brython()">
-        <script type="text/python" src="../../resources/sort.py" id="category_sort"></script>
         <H1>{name}</H1>
         <hr>
-        <DIV id="sort_settings">
+        <DIV class="jsonly">
+            <script type="text/python" src="../../resources/sort.py" id="category_sort"></script>
+            <DIV id="sort_settings">
+            </DIV>
+            <hr>
+            <DIV id="table_container">
+                <P id="load_message">Loading...</P>
+            </DIV>
         </DIV>
-        <hr>
-        <DIV id="table_container">
-            <P id="load_message">Loading...</P>
-        </DIV>
+        <noscript>
+            <P>Javascript is disabled. Please use the <A href="simplelist.html">Content List</A> instead.</P>
+        </noscript>
     </BODY>
 </HTML>
 """
@@ -152,34 +159,40 @@ AUTHOR_TEMPLATE = """<!DOCTYPE html>
         <script type="text/javascript" src="../../resources/brython.js"></script>
         <!-- <script type="text/javascript" src="../../resources/brython_stdlib.js"></script> -->
         <link rel="stylesheet" href="../../resources/styles.css">
+        <noscript><style> .jsonly {{display: none;}} </style></noscript>
     </HEAD>
     <BODY onload="brython()">
-        <script type="text/python" src="../../resources/sort.py" id="author_sort"></script>
         <H1>{name}</H1>
         <hr>
         <P><B>Name:           </B> {name}</P>
         <P><B>ID:             </B> {id}</P>
         <P><B>Fanfiction Link:</B> <A href={authorlink}>{authorlink}</A></P>
         <hr>
-        <DIV id="sort_settings">
+        <DIV class="jsonly">
+            <script type="text/python" src="../../resources/sort.py" id="author_sort"></script>
+            <DIV id="sort_settings">
+            </DIV>
+            <hr>
+            <DIV id="table_container">
+                <P id="load_message">Loading...</P>
+            </DIV>
         </DIV>
-        <hr>
-        <DIV id="table_container">
-            <P id="load_message">Loading...</P>
-        </DIV>
+        <noscript>
+            <P>Javascript is disabled. Please use the <A href="simplelist.html">Content List</A> instead.</P>
+        </noscript>
     </BODY>
 </HTML>
 """
 
-EPUB_TEMPLATE = """<!DOCTYPE html>
+COVER_TEMPLATE = """<!DOCTYPE html>
 <HTML>
     <HEAD>
         <META charset="UTF-8">
-        <title>{title} (EPUB)</title>
+        <title>{title} (Cover)</title>
         <link rel="stylesheet" href="../../resources/styles.css">
     </HEAD>
     <BODY>
-        <H1>{title} (EPUB)</H1>
+        <H1>{title} (Cover)</H1>
         {cover}
         <hr>
         <P><B>Title:          </B> {title}</P>
@@ -191,7 +204,33 @@ EPUB_TEMPLATE = """<!DOCTYPE html>
         <P><B>Packaged:       </B> {packaged}</P>
         <P><B>Description:    </B> {description}</P>
         <hr>
-        <P><A href="../stories/{fsid}/story.epub" download="{title}.epub">Download EPUB</A></>
+        <DIV class="cover_storylinks">
+            <P><A class="cover_read_link" href="story.html">Read</A><P>
+            {epublink}
+        </DIV>
+    </BODY>
+</HTML>
+"""
+
+SIMPLELIST_TEMPLATE = """<!DOCTYPE html>
+<HTML>
+    <HEAD>
+        <META charset="UTF-8">
+        <title>List of {title} stories</title>
+        <link rel="stylesheet" href="resources/styles.css">
+        <noscript><style> .jsonly {{display: none;}} </style></noscript>
+    </HEAD>
+    <BODY>
+        <H1>List of {title} stories</H1>
+        <hr>
+        <DIV class="jsonly">
+            <P><B>Note: <A href="list.html">Advance Filter&amp;Sort</A> is available</B></P>
+            <hr>
+        </DIV>
+        <DIV class="contentlist_nav">
+            {contentlist_nav}
+        </DIV>
+        {content}
     </BODY>
 </HTML>
 """
@@ -367,7 +406,7 @@ def create_table(sorted_entries):
         stats += "<P><B>Followers:</B> {:,}</P><P><B>Favorites:</B> {:,}</P>".format(follows, favs)
         tbl <= html.TR(
             html.TD(
-                    html.A(title, href="../../stories/{}/story.html".format(fsid))
+                    html.A(title, href="../../stories/{}/cover.html".format(fsid))
                 ) + html.TD(
                     html.A(author, href="../../author/{}/author.html".format(faid))
                 ) + html.TD(
@@ -601,6 +640,7 @@ def create_author_page(path, authorinfo, id2meta, minify=False):
         os.mkdir(path)
     pagepath = os.path.join(path, "author.html")
     datapath = os.path.join(path, "stories.json")
+    simplelistfile = os.path.join(path, "simplelist.html")
     authorcontent = AUTHOR_TEMPLATE.format(
         name=authorinfo["name"],
         authorlink=authorinfo["url"],
@@ -613,6 +653,13 @@ def create_author_page(path, authorinfo, id2meta, minify=False):
         minify_metadata(metadata)
     create_file_with_content(pagepath, authorcontent)
     create_file_with_content(datapath, json.dumps(metadata))
+    create_simplelist(
+        simplelistfile,
+        authorinfo["name"]+"'s",
+        id2meta,
+        authorinfo["stories"],
+        minify=minify,
+    )
 
 
 def create_category_page(path, name, minify=False):
@@ -752,9 +799,9 @@ def create_stats_page(path, id2meta, category2ids, authordata, minify=False):
     create_file_with_content(path, html)
 
 
-def create_epub_title_page(path, fsid, metadata, include_images=False, minify=False):
+def create_cover_page(path, fsid, metadata, include_images=False, include_epubs=False, minify=False):
     """
-    Write a title page for an epub download.
+    Write a cover page for a story.
     
     @param path: path to write to
     @type path: l{str}
@@ -764,10 +811,12 @@ def create_epub_title_page(path, fsid, metadata, include_images=False, minify=Fa
     @type metadata: L{dict}
     @param include_images: if nonzero, include the cover in the output.
     @type include_images: L{bool}
+    @param include_epubs: if nonzero, include a link for the epub
+    @type include_epubs: L{bool}
     @param minify: if nonzero, minify content
     @type minify: L{str}
     """
-    page = EPUB_TEMPLATE.format(
+    page = COVER_TEMPLATE.format(
         fsid=fsid,
         title=metadata.get("title", "???"),
         author=metadata.get("author", "???"),
@@ -778,6 +827,7 @@ def create_epub_title_page(path, fsid, metadata, include_images=False, minify=Fa
         updated=metadata.get("dateUpdated", "???"),
         packaged=metadata.get("dateCreated", "???"),
         cover=('<CENTER><img src="../stories/{}/images/cover.jpg" alt="cover"></CENTER>'.format(fsid) if include_images else ""),
+        epublink=('<P><A class="cover_epub_link" href="story.epub" download="{}.epub">Download EPUB</A></>'.format(metadata.get("title", "story"))),
         )
     if minify:
         page = minify_html(page)
@@ -812,3 +862,50 @@ def create_style_file(path, minify=False):
     if minify:
         css = minify_css(css)
     create_file_with_content(path, css)
+
+
+def create_simplelist(path, title, id2meta, fsids, minify=False):
+    """
+    Write the simple content list to the given path.
+    
+    @param path: path to write to
+    @type path: L{str}
+    @param title: category title
+    @type title: L{str}
+    @param id2meta: a dict mapping story IDs to their metadata
+    @type id2meta: L{dict}
+    @param fsids: list of fsids to include
+    @type fsids: L{list} of L{str}
+    @param minify: if nonzero, minify content
+    @type minify: L{str}
+    """
+    letter2titles_and_fsids = {}  # map letter -> [(title, fsids), ...]
+    for fsid in fsids:
+        meta = id2meta[fsid]
+        storytitle = meta.get("title", "???")
+        first_letter = "_"
+        for letter in storytitle.strip().upper():
+            if letter.isalnum():
+                first_letter = letter
+                break
+        if first_letter in letter2titles_and_fsids:
+            letter2titles_and_fsids[first_letter].append((storytitle, fsid))
+        else:
+            letter2titles_and_fsids[first_letter] = [(storytitle, fsid)]
+    nav = []
+    content = []
+    for letter in sorted(letter2titles_and_fsids.keys()):
+        nav.append('<A href="#{l}">{l}</A>'.format(l=letter))
+        content.append('<H2 id="{l}">{l}</H2>'.format(l=letter))
+        content.append('<UL class="linklist">')
+        for storytitle, fsid in letter2titles_and_fsids[letter]:
+            content.append('<LI><A href="../../stories/{fsid}/cover.html">{title}</A></LI>'.format(fsid=fsid, title=storytitle))
+        content.append("</UL>")
+    page = SIMPLELIST_TEMPLATE.format(
+        title=title,
+        contentlist_nav=" ".join(nav),
+        content="\n".join(content),
+    )
+    if minify:
+        page = minify_html(page)
+    create_file_with_content(path, page)

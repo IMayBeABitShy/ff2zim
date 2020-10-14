@@ -14,7 +14,7 @@ from .htmlpages import (
     create_index_page, create_stats_page,
     create_author_page, create_category_page,
     create_sort_script, create_style_file,
-    create_epub_title_page,
+    create_cover_page, create_simplelist,
     )
 from .utils import bleach_name
 from .epubconverter import Html2EpubConverter
@@ -46,6 +46,9 @@ from .minify import minify_file, minify_metadata
 #   | |
 #   | +-ABBREV-ID/
 #   | | | Story by abbev+id combination
+#   | | |
+#   | | +-cover.html
+#   | | | The cover page for the story, providing informations and links.
 #   | | | 
 #   | | +-story.html
 #   | | | The actual story, as an HTML file
@@ -65,7 +68,10 @@ from .minify import minify_file, minify_metadata
 #   | | | The list of stories in this universe
 #   | | |
 #   | | +-stories.json
-#   | |   Combined metadata of all stories in this universe
+#   | | | Combined metadata of all stories in this universe
+#   | | |
+#   | | +-simplelist.html
+#   | |   A simple, non-javascript list of stories.
 #   | |
 #   | ...
 #   |
@@ -81,11 +87,13 @@ from .minify import minify_file, minify_metadata
 #   |   +-stories.json
 #   |     Combined metadata of all stories by this author
 #   |
-#   +-epubs/
-#     | epub title pages (if include_epubs == True)
-#     |
-#     +-ABBREV-ID.html
-#         The epub title page, identified by abbrev+id combo
+#   +-index.html
+#   | The index page
+#   |
+#   +-stats.html
+#     Statistics about the zimfile.
+
+
 
 
 def build_zim(project, outpath, reporter=None):
@@ -224,11 +232,6 @@ def build_zim(project, outpath, reporter=None):
                 storydir = os.path.join(htmldir, "stories")
                 if not os.path.exists(storydir):
                     os.mkdir(storydir)
-                epubpagedir = os.path.join(htmldir, "epubs")
-                if build_epubs:
-                    if not os.path.exists(epubpagedir):
-                        os.mkdir(epubpagedir)
-                # for fsid in id2meta.keys():
                 for fsid in fsids:
                     # story
                     storydata = id2meta[fsid]
@@ -256,14 +259,16 @@ def build_zim(project, outpath, reporter=None):
                         converter = Html2EpubConverter(srcdir)
                         converter.parse()
                         converter.write(epubdest)
-                        epubtitlepagepath = os.path.join(epubpagedir, fsid + ".html")
-                        create_epub_title_page(
-                            epubtitlepagepath,
-                            fsid, 
-                            id2meta[fsid],
-                            include_images=include_images,
-                            minify=minify,
-                            )
+                    # cover page
+                    coverpagepath = os.path.join(dstdir, "cover.html")
+                    create_cover_page(
+                        coverpagepath,
+                        fsid, 
+                        id2meta[fsid],
+                        include_images=include_images,
+                        include_epubs=build_epubs,
+                        minify=minify,
+                        )
                     # advance progress bar
                     pb.advance(1)
             # reporter.msg("Done.")
@@ -282,14 +287,20 @@ def build_zim(project, outpath, reporter=None):
                 catdir = os.path.join(category_dir, bleach_name(category))
                 if not os.path.exists(catdir):
                     os.mkdir(catdir)
+                # create category page
                 listfile = os.path.join(catdir, "list.html")
                 create_category_page(listfile, category, minify=minify)
+                # dump metadata
                 metafile = os.path.join(catdir, "stories.json")
                 combined_meta = [e for e in metadata if "{}-{}".format(e["siteabbrev"], e["storyId"]) in category2ids[category]]
                 if minify:
                     minify_metadata(metadata)
                 with open(metafile, "w") as fout:
                     json.dump(combined_meta, fout)
+                # create simplified list
+                simplelistfile = os.path.join(catdir, "simplelist.html")
+                create_simplelist(simplelistfile, category, id2meta, category2ids[category], minify=minify)
+                
                 ncreated += 1
                 pb.advance(1)
         # reporter.msg("Done.")
@@ -305,6 +316,7 @@ def build_zim(project, outpath, reporter=None):
                 authorinfo = authordata[authorid]
                 authorpath = os.path.join(author_dir, str(authorid))
                 create_author_page(authorpath, authorinfo, id2meta, minify=minify)
+                
                 ncreated += 1
                 pb.advance(1)
         # reporter.msg("Done.")
