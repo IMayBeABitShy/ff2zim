@@ -263,7 +263,7 @@ def get_sortinfo():
     sortinfo["rating"] = document["rating"].value
     sortinfo["status"] = document["status"].value
     sortinfo["sort_by"] = document["sortBy"].value
-    sortinfo["reverse"] = document["reverse"].value
+    sortinfo["reverse"] = document["reverse"].checked
     sortinfo["characters"] = [option.value for option in document["characters"] if option.selected]
     return sortinfo
 
@@ -341,7 +341,7 @@ def sort_entries(sortinfo):
     if invert_reverse:
         reverse = not sortinfo.get("reverse", False)
     else:
-        reverse = sortinfo.get("reverse")
+        reverse = sortinfo.get("reverse", False)
     
     return sorted(filtered, key=sortkey, reverse=reverse)
 
@@ -559,8 +559,24 @@ table, th, tr {
     background: darkgrey;
 }
 
-.sort_settings SELECT {
-    width: 512px;
+.sort_form * {
+    margin-bottom: 8px;
+}
+
+.sort_form LABEL {
+    display: inline-block;
+    width:10%;
+    font-weight: bold;
+}
+
+.sort_form SELECT {
+    display: inline-block;
+    width: 90%
+}
+
+.sort_form #update_button {
+    width: 100%;
+    font-weight: bold;
 }
 """
 
