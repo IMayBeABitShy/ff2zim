@@ -296,6 +296,7 @@ def get_sortinfo():
             "sort_by": "updated",
             "reverse": False,
             "characters": ["ANY"],
+            "ship": [],
         }
         
     sortinfo["language"] = document["language"].value
@@ -304,6 +305,7 @@ def get_sortinfo():
     sortinfo["sort_by"] = document["sortBy"].value
     sortinfo["reverse"] = document["reverse"].checked
     sortinfo["characters"] = [option.value for option in document["characters"] if option.selected]
+    sortinfo["ship"] = [option.value for option in document["ship"] if option.selected]
     return sortinfo
 
 
@@ -339,6 +341,14 @@ def sort_entries(sortinfo):
                 break
         if not chars_valid:
             # characters do not match
+            continue
+        
+        # filter ship
+        ship_valid = False
+        ship = sortinfo["ship"]
+        storyships = [cn for ss in e.get("ships", []) for cn in ss]
+        if not all([(cn in storyships or (cn == "ANY" and storyships)) for cn in ship]):
+            # not all characters are shipped
             continue
         
         filtered.append(e)
@@ -439,6 +449,7 @@ def create_settings():
     cur_rating = current["rating"]
     cur_status = current["status"]
     cur_chars = current["characters"]
+    cur_ship = current["ship"]
     div = html.DIV()
     form = html.FORM(**{"class": "sort_form"})
     
@@ -475,6 +486,15 @@ def create_settings():
         [html.OPTION(character, value=character, selected=(character in cur_chars)) for character in CHARACTERS],
         id="characters",
         name="characters",
+        multiple=True,
+    )
+    
+    # pairing
+    form <= html.LABEL("Ship:", **{"for": "ship", })
+    form <= html.SELECT(
+        [html.OPTION(character, value=character, selected=(character in cur_ship)) for character in CHARACTERS],
+        id="ship",
+        name="ship",
         multiple=True,
     )
     

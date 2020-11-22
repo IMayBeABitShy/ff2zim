@@ -5,6 +5,9 @@ are roughly the same.
 from .utils import str_to_int
 
 
+SLASH_PLACEHOLDER = "_ff2zim_SLASH_"
+
+
 class BaseMetadataConverter(object):
     """
     Base class for all metadata converters.
@@ -41,6 +44,23 @@ class DefaultConverter(BaseMetadataConverter):
         data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
         if "" in data["characters"]:
             data["characters"].remove("")
+        # split ships
+        ships = []
+        for ship in data.get("ships", "").replace(", ", ",").split(","):
+            if not ship or not ship[0]:
+                continue
+            # replace / in names
+            for name in data["characters"]:
+                if "/" not in name:
+                    continue
+                new_name = name.replace("/", SLASH_PLACEHOLDER)
+                if name in ship:
+                    ship = ship.replace(name, new_name)
+            shipmembers = sorted(ship.split("/"))
+            # undo replacement
+            shipmembers = [sm.replace(SLASH_PLACEHOLDER, "/") for sm in shipmembers]
+            ships.append(shipmembers)
+        data["ships"] = ships
         return data
         
     
@@ -61,6 +81,23 @@ class FFNetConverter(BaseMetadataConverter):
         data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
         if "" in data["characters"]:
             data["characters"].remove("")
+        # split ships
+        ships = []
+        for ship in data.get("ships", "").replace(", ", ",").split(","):
+            if not ship or not ship[0]:
+                continue
+            # replace / in names
+            for name in data["characters"]:
+                if "/" not in name:
+                    continue
+                new_name = name.replace("/", SLASH_PLACEHOLDER)
+                if name in ship:
+                    ship = ship.replace(name, new_name)
+            shipmembers = sorted(ship.split("/"))
+            # undo replacement
+            shipmembers = [sm.replace(SLASH_PLACEHOLDER, "/") for sm in shipmembers]
+            ships.append(shipmembers)
+        data["ships"] = ships
         return data
 
 
@@ -84,6 +121,23 @@ class AO3Converter(BaseMetadataConverter):
         data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
         if "" in data["characters"]:
             data["characters"].remove("")
+        # split ships
+        ships = []
+        for ship in data.get("ships", "").replace(", ", ",").split(","):
+            if not ship or not ship[0]:
+                continue
+            # replace / in names
+            for name in data["characters"]:
+                if "/" not in name:
+                    continue
+                new_name = name.replace("/", SLASH_PLACEHOLDER)
+                if name in ship:
+                    ship = ship.replace(name, new_name)
+            shipmembers = sorted(ship.split("/"))
+            # undo replacement
+            shipmembers = [sm.replace(SLASH_PLACEHOLDER, "/") for sm in shipmembers]
+            ships.append(shipmembers)
+        data["ships"] = ships
         return data
 
 
@@ -109,6 +163,23 @@ class FSBConverter(BaseMetadataConverter):
         data["characters"] = data.get("characters", "").replace(", ", ",").split(",")
         if "" in data["characters"]:
             data["characters"].remove("")
+        # split ships
+        ships = []
+        for ship in data.get("ships", "").replace(", ", ",").split(","):
+            if not ship or not ship[0]:
+                continue
+            # replace / in names
+            for name in data["characters"]:
+                if "/" not in name:
+                    continue
+                new_name = name.replace("/", SLASH_PLACEHOLDER)
+                if name in ship:
+                    ship = ship.replace(name, new_name)
+            shipmembers = sorted(ship.split("/"))
+            # undo replacement
+            shipmembers = [sm.replace(SLASH_PLACEHOLDER, "/") for sm in shipmembers]
+            ships.append(shipmembers)
+        data["ships"] = ships
         return data
 
 
