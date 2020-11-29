@@ -140,7 +140,7 @@ def build_zim(project, outpath, reporter=None):
         build_epubs     = project.get_option("build", "include_epubs", True)
         zim_title       = project.get_option("build", "title", "fanfiction archive")
         zim_language    = project.get_option("build", "language", "EN")
-        zim_description = project.get_option("build", "description", "Archieved fanfictions")
+        zim_description = project.get_option("build", "description", "Archived fanfictions")
         zim_creator     = project.get_option("build", "creator", "various")
         zim_publisher   = project.get_option("build", "publisher", "UNKNOWN")
         reporter.msg("Done.")
