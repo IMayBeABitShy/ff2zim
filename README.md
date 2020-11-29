@@ -93,3 +93,26 @@ A *target* represents a story to download. This is usually a URL to the fanfic.
 
 ## Advanced Usage
 
+### Using subprojects
+
+You can split a project into multiple subprojects. If you do this, building the toplevel project will also include the subprojects. The ZIM will then be build with the build options of the toplevel project.
+
+**Advanatages of using subprojects:**
+
+- thematic organization
+
+- Use different combinations of subprojects and their stored fanfictions to produce various ZIM files while only having to store one copy of the fanfic.
+- Specify various build configurations
+
+
+
+To setup subprojects, edit the `subprojects.txt` file in the project root directory.
+
+### Content minification
+
+ff2zim allows automated minification of most of the generated content. Experience shows that the results were neglible, so it's disabled by default. To change this, set the `build`:`minify` option to `True`.
+
+
+## Attribution
+
+The icon image was taken from [here](https://www.brandeps.com/icon/B/Book-03). According to the website, the it is licensed under the CC0 license.
