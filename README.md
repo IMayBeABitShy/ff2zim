@@ -117,7 +117,7 @@ You likely want to configure some build and download options. These options are 
 The options for changing how a ZIM file is build are in the `build` section.
 
 - `title`: title of the ZIM. Default: `fanfiction archive`.
-- `language`: language of the EPUB. Default: EN.
+- `language`: language of the ZIM. Default: EN.
 - `description`: description of the ZIM file. DEFAULT: `Archived fanfictions`.
 - `creator`: The creator of the content. Default: `various`.
 - `publisher`: The publisher of the ZIM, meaning you. Default: `UNKNOWN`.
