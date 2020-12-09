@@ -9,8 +9,6 @@
 - Export stories to EPUBs
 - Interactive shell
 - Gather statistics (total words, size)
-- Special ffnet support (download entire categories, ...)
-
 
 
 ## Requirements
