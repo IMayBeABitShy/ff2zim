@@ -10,6 +10,7 @@
 - Interactive shell
 - Gather statistics (total words, size)
 
+**Note:** ff2zim does not offer any download capabilities on its own, [fanficfare](https://github.com/JimmXinu/FanFicFare) is required for downloading fanfics.
 
 ## Requirements
 
