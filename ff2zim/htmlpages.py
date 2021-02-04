@@ -345,11 +345,15 @@ def sort_entries(sortinfo):
         
         # filter ship
         ship_valid = False
-        ship = sortinfo["ship"]
-        storyships = [cn for ss in e.get("ships", []) for cn in ss]
-        if not all([(cn in storyships or (cn == "ANY" and storyships)) for cn in ship]):
-            # not all characters are shipped
-            continue
+        ship = sortinfo["ship"]  # list of all selected character names ("ANY" by default)
+        if len(ship) == 1 and "ANY" in ship:
+             # no ship selected
+             pass
+        else:
+            storyships = [cn for ss in e.get("ships", []) for cn in ss]  # all characters shipped by the story
+            if not all([(cn in storyships or (cn == "ANY" and storyships)) for cn in ship]):
+                # not all characters are shipped
+                continue
         
         filtered.append(e)
     
