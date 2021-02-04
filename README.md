@@ -9,9 +9,8 @@
 - Export stories to EPUBs
 - Interactive shell
 - Gather statistics (total words, size)
-- Special ffnet support (download entire categories, ...)
 
-
+**Note:** ff2zim does not offer any download capabilities on its own, [fanficfare](https://github.com/JimmXinu/FanFicFare) is required for downloading fanfics.
 
 ## Requirements
 
