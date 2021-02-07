@@ -4,6 +4,7 @@ managing the data and paths.
 """
 import os
 import json
+from json import JSONDecodeError
 
 from fanficfare.geturls import get_urls_from_imap
 
@@ -42,6 +43,10 @@ from .converter import get_metadata_converter
 # | | Contains other resources, e.g. favicon.png
 # | |
 # | +-favicon.ico
+# | |
+# | +-brython.js
+# | |
+# | +-brython_stdlib.js
 # |
 # +-target_urls.txt
 # |  A list of URLs, one per line, which to download and include.
@@ -53,7 +58,10 @@ from .converter import get_metadata_converter
 # |  Contains the update-required status of the fanfics.
 # |
 # +-subprojects.txt
-#    Contains a list of subprojects to include
+# |  Contains a list of subprojects to include
+# |
+# +-aliases.json
+#    Contains aliases for categories
 
 
 TARGETLIST_DEFAULT_CONTENT = """
@@ -611,4 +619,138 @@ class Project(object):
         stats.append(ts)
         
         return stats
+    
+    def check_integrity(self):
+        """
+        Check project integrity.
         
+        This checks the project for some known errors in filesystem, state, ...
+        Some issues needs to be fixed before further can be investigated.
+        
+        @return: a dict of category -> list of problems
+        @rtype: L{dict} of L{str} -> L{list} of L{str}
+        """
+        project_errors = []
+        story_errors = []
+        resource_errors = []
+        subproject_errors = []
+        
+        # --- check general project state ---
+        if not os.path.exists(self.path):
+            project_errors.append("CRITICAL: project path does not exists!")
+        else:
+            # check project.json
+            pjson_path = os.path.join(self.path, "project.json")
+            if not os.path.exists(pjson_path):
+                project_errors.append("CRITICAL: project.json missing!")
+            else:
+                try:
+                    with open(pjson_path, "r") as fin:
+                        pjson_content = json.load(fin)
+                except JSONDecodeError:
+                    project_errors.append("CRITICAL: project.json is not valid JSON!")
+                else:
+                    if not isinstance(pjson_content, dict):
+                        project_errors.append("CRITICAL: project.json does not contain a key-value mapping!")
+                    elif "version" not in pjson_content:
+                        project_errors.append("WARNING: project.json does not contain a 'version' key!")
+            
+            # check project state files
+            tu_path = os.path.join(self.path, "to_update.json")
+            if not os.path.exists(tu_path):
+                project_errors.append("WARNING: to_update.json does not exists!")
+            else:
+                try:
+                    with open(tu_path, "r") as fin:
+                        tu_content = json.load(fin)
+                except JSONDecodeError:
+                    project_errors.append("ERROR: to_update.json is not valid JSON!")
+                else:
+                    if not isinstance(tu_content, list):
+                        project_errors.append("ERROR: to_update.json does not contain a list!")
+                    else:
+                        for url in tu_content:
+                            if not isinstance(url, str):
+                                project_errors.append("ERROR: to_update.json contains non-string values!")
+                            elif not self.has_target_locally(url):
+                                story_errors.append("Error: story '{}' is staged for update, but not present locally!".format(url))
+            
+            # check various other project state files
+            to_check = ["target_urls.txt", "subprojects.txt"]
+            for fn in to_check:
+                fp = os.path.join(self.path, fn)
+                if not os.path.exists(fp):
+                    project_errors.append("WARNING: file '{}' does not exists!".format(fn))
+            
+            # check aliases
+            al_path = os.path.join(self.path, "aliases.json")
+            if not os.path.exists(al_path):
+                project_errors.append("WARNING: aliases.json does not exists!")
+            else:
+                try:
+                    with open(al_path, "r") as fin:
+                        al_content = json.load(fin)
+                except JSONDecodeError:
+                    project_errors.append("ERROR: aliases.json is not valid JSON!")
+                else:
+                    if not isinstance(al_content, dict):
+                        project_errors.append("ERROR: aliases.json does not contain a key-value-mapping!")
+                    else:
+                        for a_src in al_content:
+                            if not isinstance(a_src, str):
+                                project_errors.append("ERROR: aliases.json contains non-string keys!")
+                            elif not isinstance(al_content[a_src], str):
+                                project_errors.append("ERROR: aliases.json contains non-string values!")
+            
+            # check resources
+            to_check = ["favicon.ico", "brython.js", "brython_stdlib.js"]
+            for fn in to_check:
+                fp = os.path.join(self.path, "resources", fn)
+                if not os.path.exists(fp):
+                    resource_errors.append("ERROR: resource '{}' does not exists! Try to reinitialize static resources.".format(fn))
+            
+            # check subprojects
+            if not os.path.exists(os.path.join(self.path, "subprojects.txt")):
+                subproject_errors.append("WARNING: 'subprojects.txt' does not exists!")
+            else:
+                subprojects = self.get_subprojects()
+                for sp in subprojects:
+                    if len(sp.check_integrity()) != 0:
+                        subproject_errors.append("ERROR: Subproject '{}' seems damaged!".format(sp.path))
+            
+            # check stories
+            sitepath = os.path.join(self.path, "fanfics")
+            if not os.path.exists(sitepath):
+                project_errors.append("INFO: project does not contain any fanfics.")
+            else:
+                for site in os.listdir(sitepath):
+                    storiespath = os.path.join(sitepath, site)
+                    for fid in os.listdir(storiespath):
+                        storypath = os.path.join(storiespath, fid)
+                        textpath = os.path.join(storypath, "story.html")
+                        if not os.path.exists(textpath):
+                            story_errors.append("ERROR: story {}/{} has no text!".format(site, fid))
+                        metapath = os.path.join(storypath, "metadata.json")
+                        if not os.path.exists(textpath):
+                            story_errors.append("ERROR: story {}/{} has no metadata!".format(site, fid))
+                        else:
+                            try:
+                                with open(metapath, "r") as fin:
+                                    meta_content = json.load(fin)
+                            except JSONDecodeError:
+                                story_errors.append("ERROR: story {}/{} has invalid/damaged metadata!".format(site, fid))
+                            else:
+                                if not isinstance(meta_content, dict):
+                                    story_errors.append("ERROR: story {}/{} metadata does not contain a key-value mapping!".format(site, fid))
+            
+        problems = {}
+        if project_errors:
+            problems["Project"] = project_errors
+        if resource_errors:
+            problems["Resources"] = resource_errors
+        if subproject_errors:
+            problems["Subprojects"] = subproject_errors
+        if story_errors:
+            problems["Stories"] = story_errors
+        
+        return problems

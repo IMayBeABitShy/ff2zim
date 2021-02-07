@@ -622,6 +622,23 @@ class FF2ZIMConsole(cmd.Cmd):
             for name, key in to_print:
                 num = stats[key]
                 print("{:24s}{:>12}".format(name, num))
+    
+    def do_check_integrity(self, s):
+        """
+        check_integrity: check for possible errors in project files.
+        """
+        if self.project is None:
+            print("Error: No project selected.")
+            return
+        problems = self.project.check_integrity()
+        if not problems:
+            print("No problems detected. Note: some errors may not have been detected.")
+        else:
+            print("Problems detected.")
+            for category in problems:
+                print("--------------- {} ---------------".format(category))
+                for msg in problems[category]:
+                    print("   {}".format(msg))
 
 
 
