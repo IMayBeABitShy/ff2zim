@@ -111,6 +111,7 @@ class Target(object):
                 "--non-interactive",
                 "-o", "is_adult=true",
                 "-o", "output_filename={t}{s}${{siteabbrev}}{s}${{storyId}}{s}story${{formatext}}".format(t=fanfic_path, s=os.sep),
+                "-o", "continue_on_chapter_error=false",
                 ]
             if project.get_option("download", "include_images", True):
                 args += ["-o", "include_images=true"]
