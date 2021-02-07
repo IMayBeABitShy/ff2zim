@@ -850,7 +850,7 @@ def create_cover_page(path, fsid, metadata, include_images=False, include_epubs=
         published=metadata.get("datePublished", "???"),
         updated=metadata.get("dateUpdated", "???"),
         packaged=metadata.get("dateCreated", "???"),
-        cover=('<CENTER><img src="../stories/{}/images/cover.jpg" alt="cover"></CENTER>'.format(fsid) if include_images else ""),
+        cover=('<CENTER><img src="images/cover.jpg" alt="cover"></CENTER>'.format(fsid) if include_images else ""),
         epublink=('<P><A class="cover_epub_link" href="story.epub" download="{}.epub">Download EPUB</A></>'.format(metadata.get("title", "story"))),
         )
     if minify:
