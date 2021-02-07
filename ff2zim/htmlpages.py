@@ -224,7 +224,7 @@ SIMPLELIST_TEMPLATE = """<!DOCTYPE html>
         <H1>List of {title} stories</H1>
         <hr>
         <DIV class="jsonly">
-            <P><B>Note: <A href="list.html">Advance Filter&amp;Sort</A> is available</B></P>
+            <P><B>Note: <A href="list.html">Advanced Filter&amp;Sort</A> is available</B></P>
             <hr>
         </DIV>
         <DIV class="contentlist_nav">
